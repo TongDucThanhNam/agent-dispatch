@@ -1,0 +1,15 @@
+{
+  "measuredAt": "2026-09-15T11:04:00.165Z",
+  "backend": "loopback Responses mock; no paid model inference",
+  "modelRequested": "gpt-6-astra",
+  "modelRequests": 1,
+  "authorizationReceived": false,
+  "fixturePacketBytes": 119,
+  "actualRequestInputBytes": 29295,
+  "inheritedOriginalConversation": false,
+  "advertisedToolGroups": [
+    "functions",
+    "collaboration"
+  ],
+  "note": "Mock usage values are synthetic and are not savings evidence. Fixed CLI tool/instruction overhead remains. Real production quality, routing and token usage require a real assigned task."
+}

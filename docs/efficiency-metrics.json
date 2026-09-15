@@ -1,0 +1,82 @@
+{
+  "measuredAt": "2026-09-15T00:41:43.675Z",
+  "baseline": {
+    "at": "2026-09-15T00:34:18.077Z",
+    "snapshot": {
+      "bytes": 2862008,
+      "ms": 662,
+      "runs": 304,
+      "active": 0,
+      "largest": [
+        {
+          "id": "1abce01e47bafbea1241268a",
+          "bytes": 21281
+        },
+        {
+          "id": "6728ff5eb78bb50c1c3b0a41",
+          "bytes": 19804
+        },
+        {
+          "id": "bcc1c0c7924a467aa0f79b8b",
+          "bytes": 19767
+        }
+      ]
+    },
+    "list": {
+      "ms": 516,
+      "bytes": 9507,
+      "exit": 0,
+      "error": ""
+    }
+  },
+  "after": {
+    "snapshot": {
+      "bytes": 74466,
+      "coldMs": 82,
+      "warmMs": 15,
+      "runs": 304,
+      "active": 0
+    },
+    "unchanged": {
+      "status": 304,
+      "bodyBytes": 0
+    },
+    "selectedDetail": {
+      "id": "1abce01e47bafbea1241268a",
+      "status": 200,
+      "bytes": 21281
+    },
+    "list": {
+      "samples": [
+        {
+          "ms": 117,
+          "bytes": 9507
+        },
+        {
+          "ms": 116,
+          "bytes": 9507
+        },
+        {
+          "ms": 114,
+          "bytes": 9507
+        },
+        {
+          "ms": 121,
+          "bytes": 9507
+        },
+        {
+          "ms": 163,
+          "bytes": 9507
+        }
+      ],
+      "medianMs": 117
+    }
+  },
+  "summaryPayloadReductionPercent": 97.4,
+  "limits": [
+    "Payload bytes and timings are local measurements, not model tokens or billed quota.",
+    "Baseline timing is one sample; after CLI timing has five samples. OS cache and machine load vary.",
+    "Snapshot summary excludes selected detail, which now has its own conditional endpoint.",
+    "No worker inference was purchased for this audit."
+  ]
+}

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agents · Trajectory</title>
+<style>
+:root{color-scheme:dark;--bg:#111316;--panel:#171a1f;--line:#2b2f36;--text:#e3e6eb;--muted:#929ba9;--model:#9c99ef;--tool:#73bfaf;--input:#81a9e7;--context:#d4b37c;--accent:#bbb4ff;font:13px/1.5 Inter,Segoe UI,system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}button,input{font:inherit}button{cursor:pointer;color:inherit;background:transparent;border:1px solid transparent;border-radius:5px}button:hover{background:#252931}button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}button:disabled{opacity:.4;cursor:default}button[aria-pressed=true]{background:#30303f;color:#e3deff}a{color:var(--accent)}[hidden]{display:none!important}.shell{height:100dvh;display:grid;grid-template-columns:190px minmax(0,1fr)}.sidebar{background:#14161a;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;padding:22px 12px 12px}.brand{font-weight:650;letter-spacing:-.2px;padding:0 9px 25px;display:flex;gap:9px;align-items:center}.brand-mark{display:grid;place-items:center;width:25px;height:25px;border:1px solid #656078;border-radius:7px;color:#c6bfff;font:600 17px ui-monospace,monospace}.aside-label{color:var(--muted);font-size:10px;letter-spacing:1.2px;padding:0 9px 10px;display:flex;justify-content:space-between}.runs{flex:1;overflow:auto}.job{width:100%;text-align:left;padding:11px 10px;margin-bottom:5px;border-radius:6px}.job[aria-current=true]{background:#272530;border-color:#474052}.job-title{display:flex;gap:8px;align-items:center;font-weight:550;font-size:12px}.job-title span:last-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.dot{width:6px;height:6px;border-radius:50%;background:var(--tool);display:inline-block;flex-shrink:0}.job-meta{color:var(--muted);font-size:10px;margin:5px 0 0 14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sidebar-foot{border-top:1px solid var(--line);padding:13px 9px 0;color:var(--muted);font-size:10px}.connection{display:flex;align-items:center;gap:7px}.offline .dot{background:var(--context)}.main{display:flex;flex-direction:column;min-height:0;min-width:0}.header{padding:20px 24px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}.eyebrow{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:4px}h1{font-size:17px;font-weight:550;letter-spacing:-.3px;margin:0}.actions{display:flex;gap:8px}.quiet-button{border-color:var(--line);padding:5px 10px;font-size:11px}.status{font-size:10px;border:1px solid #334d47;background:#1c2b26;border-radius:4px;color:#9bd2be;padding:3px 7px;white-space:nowrap}.meta{padding:10px 24px;color:var(--muted);font-size:11px;display:flex;align-items:center;flex-wrap:wrap;gap:12px}.meta .separator{color:#4e5360}.model-name{color:#bdb6e9}.alert{margin:0 24px 12px;padding:9px 12px;border:1px solid #695635;background:#29251c;color:#dfc795;border-radius:5px;font-size:12px}.overview{margin:4px 24px 17px;border:1px solid var(--line);border-radius:6px;overflow:hidden}.overview-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:9px 12px;gap:8px}.overview-title{font-size:11px;font-weight:600}.switch{display:flex;gap:2px}.switch button{font-size:10px;padding:3px 9px;color:var(--muted)}.timeline{padding:12px;display:grid;gap:8px}.lane{display:grid;grid-template-columns:47px minmax(0,1fr);gap:12px;align-items:center;font-size:10px;color:var(--muted)}.track{height:13px;background:repeating-linear-gradient(to right,#24272e 0 1px,transparent 1px 20%);position:relative;overflow:hidden}.span{position:absolute;top:1px;min-width:2px;height:11px;border:0;border-radius:2px;padding:0;opacity:.72;background:var(--model)}.span:hover,.span.selected{opacity:1;box-shadow:inset 0 0 0 1px #eee}.span.tool{background:var(--tool)}.span.input{background:var(--input)}.span.context{background:var(--context)}.span.running{border:1px solid currentColor;background:transparent;min-width:3px}.axis{display:flex;justify-content:space-between;margin-left:59px;font:10px ui-monospace,monospace;color:var(--muted)}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 265px;min-height:0;flex:1;border-top:1px solid var(--line)}.ledger{display:flex;flex-direction:column;min-width:0;min-height:0}.toolbar{height:47px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--line);gap:10px}.toolbar-title{display:flex;align-items:center;gap:8px;font-weight:550;font-size:12px}.count{font-size:10px;background:#272b33;color:var(--muted);padding:1px 5px;border-radius:3px;font-weight:400}.tools{display:flex;align-items:center;gap:10px}.search{background:#171a20;border:1px solid var(--line);border-radius:5px;padding:4px 7px;color:var(--text);font-size:11px;width:135px}.follow{font-size:10px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:4px}.follow input{accent-color:#ada2eb;width:12px;height:12px}.columns,.event{display:grid;grid-template-columns:39px 64px minmax(0,1fr) 64px;gap:8px;align-items:center}.columns{padding:8px 16px;color:#77818f;font-size:9px;letter-spacing:.8px;border-bottom:1px solid var(--line)}.columns span:last-child{text-align:right}.rows{overflow:auto;flex:1;min-height:0;scrollbar-color:#41444f transparent;scrollbar-width:thin}.event{width:100%;padding:10px 16px;border-bottom:1px solid #24272d;border-radius:0;text-align:left;min-height:48px}.event[aria-pressed=true]{background:#292634;box-shadow:inset 2px 0 var(--accent)}.index{color:#747e8c;font:10px ui-monospace,monospace}.role{font:9px ui-monospace,monospace;letter-spacing:.5px;color:var(--model)}.role.tool{color:var(--tool)}.role.input{color:var(--input)}.role.context{color:var(--context)}.event-label{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.event-sub{font-size:10px;color:var(--muted);margin-top:2px}.duration{text-align:right;color:#a6aebd;font:10px ui-monospace,monospace}.running-label{color:#a3cdbf}.older{display:block;width:100%;padding:10px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);border-radius:0}.inspector{background:#15171c;border-left:1px solid var(--line);min-width:0;overflow:auto;padding:16px}.inspector-head{font-size:10px;letter-spacing:.8px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.inspector h2{font-size:15px;font-weight:550;margin:8px 0 3px;overflow-wrap:anywhere}.inspector .sub{font-size:11px;color:var(--muted);margin-bottom:20px}.tabs{display:flex;gap:12px;border-bottom:1px solid var(--line);margin-bottom:16px}.tabs button{font-size:11px;color:var(--muted);padding:0 0 8px;border-radius:0}.tabs button[aria-pressed=true]{background:none;border-bottom:1px solid var(--accent);color:var(--accent)}dl{margin:0}dt{font-size:10px;color:var(--muted);margin-bottom:4px}dd{margin:0 0 15px;font-size:11px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}.inspector pre{font:10px/1.6 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#b4bdcc}.note{font-size:10px;line-height:1.6;color:#848f9f;margin-top:20px}.empty{margin:auto;max-width:400px;text-align:center;padding:35px;color:var(--muted)}.empty h2{font-size:18px;font-weight:500;color:var(--text);margin:0 0 9px}.empty p{font-size:12px;line-height:1.7;margin:0}.empty-small{font-size:11px;color:var(--muted);padding:20px 10px;text-align:center}.detail-empty{color:var(--muted);font-size:12px;padding-top:16px}.footer{border-top:1px solid var(--line);padding:7px 16px;font-size:10px;color:var(--muted);display:flex;justify-content:space-between;gap:10px}.mobile-detail{display:none}dialog{background:#1c2027;color:var(--text);border:1px solid #55505e;border-radius:9px;padding:24px;max-width:380px}dialog::backdrop{background:#0009}dialog p{font-size:12px;color:var(--muted)}dialog .actions{justify-content:flex-end;margin-top:20px}
+@media(max-width:1000px){.shell{grid-template-columns:157px minmax(0,1fr)}.workspace{grid-template-columns:minmax(0,1fr) 225px}.header{padding:16px}.overview{margin:4px 16px 16px}.meta{padding:10px 16px}.event,.columns{grid-template-columns:30px 52px minmax(0,1fr) 55px;padding-left:12px;padding-right:12px}.search{width:95px}.toolbar{padding:0 12px}}
+@media(max-width:760px){.shell{grid-template-columns:140px minmax(0,1fr)}.workspace{grid-template-columns:minmax(0,1fr)}.inspector{display:none;position:fixed;right:0;top:0;bottom:0;width:min(330px,85vw);z-index:5;box-shadow:-10px 0 40px #0008}.inspector.open{display:block}.mobile-detail{display:block}.meta{gap:7px}.overview-head{padding:8px}.header{align-items:flex-start}.actions{gap:3px}.header .quiet-button{padding:3px 6px}.search{width:85px}}
+@media(max-width:480px){.shell{grid-template-columns:104px minmax(0,1fr)}.sidebar{padding:16px 5px 10px}.brand{font-size:12px;padding:0 5px 22px;gap:5px}.brand-mark{width:20px;height:20px;font-size:13px}.aside-label{font-size:9px;padding:0 5px 8px}.job{padding:9px 5px}.job-title{font-size:10px;gap:5px}.job-meta{font-size:9px;margin-left:11px}.sidebar-foot{padding:10px 5px 0;font-size:9px}.header{padding:12px}.header h1{font-size:14px}.meta{padding:8px 12px;font-size:10px}.overview{margin:4px 12px 12px}.switch button{padding:3px 5px}.toolbar{height:auto;min-height:45px;flex-wrap:wrap;padding:8px 10px}.event,.columns{grid-template-columns:22px 42px minmax(0,1fr) 42px;gap:5px;padding:9px 10px}.role{font-size:8px}.duration{font-size:9px}.event-label{font-size:10px}.alert{margin:0 12px 10px;font-size:11px}}
+.workspace{grid-template-columns:minmax(0,1fr) minmax(300px,36%)}.content-section{margin:0 0 22px}.content-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}.content-heading h3{font-size:12px;font-weight:550;margin:0}.content-section pre{margin:0;background:#111318;border:1px solid var(--line);border-radius:5px;padding:10px;font-size:11px;line-height:1.65;tab-size:2}.content-section .quiet-button{font-size:10px}.content-more{margin-top:8px}.content-status{font-size:11px;color:var(--muted);margin:12px 0}.content-section .note{margin:7px 0 0}
+@media(max-width:1000px){.workspace{grid-template-columns:minmax(0,1fr) 290px}}
+@media(max-width:760px){.workspace{grid-template-columns:minmax(0,1fr)}.inspector{width:min(620px,94vw)}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar"><div class="brand"><span class="brand-mark">a</span>Agents</div><div class="aside-label">RUNNING <span id="run-count">0</span></div><nav id="runs" class="runs" aria-label="Running jobs"></nav><div class="sidebar-foot"><div id="connection" class="connection"><span class="dot"></span><span id="connection-label">Connecting</span></div><div style="margin-top:5px">Local activity stream</div></div></aside>
+  <main class="main">
+    <header class="header"><div><div class="eyebrow">Agent monitor</div><h1 id="title">Trajectory</h1></div><div class="actions"><span id="status" class="status" hidden></span><button id="retry" class="quiet-button" hidden>Retry notification</button><button id="stop" class="quiet-button" hidden>Stop</button></div></header>
+    <div id="meta" class="meta" hidden></div><div id="alert" class="alert" role="status" hidden></div>
+    <div id="empty" class="empty"><h2>No jobs running</h2><p>New ZCode and AGY jobs appear here automatically.<br>This dashboard stays ready for the next run.</p></div>
+    <section id="overview" class="overview" aria-label="Activity timeline" hidden><div class="overview-head"><span class="overview-title">Overview</span><div class="switch" aria-label="Timeline scale"><button data-mode="duration" aria-pressed="true">Duration</button><button data-mode="turns" aria-pressed="false">Turns</button><button data-mode="calls" aria-pressed="false">Calls</button></div></div><div id="timeline" class="timeline"></div></section>
+    <div id="workspace" class="workspace" hidden><section class="ledger" aria-label="Trajectory events"><div class="toolbar"><div class="toolbar-title">Trajectory <span id="event-count" class="count">0</span></div><div class="tools"><input id="search" class="search" type="search" placeholder="Filter events…" aria-label="Filter events"><label class="follow"><input id="follow" type="checkbox" checked>Follow</label></div></div><div class="columns"><span>#</span><span>ROLE</span><span>ACTIVITY</span><span>TIME</span></div><div id="rows" class="rows"></div><div class="footer"><span id="event-note">Recorded events</span><span id="updated">Waiting</span></div></section><aside id="inspector" class="inspector" aria-label="Event details"></aside></div>
+  </main>
+</div>
+<dialog id="stop-dialog"><h3>Stop this job?</h3><p>The worker and its child processes will stop. Its saved files and session are retained.</p><div class="actions"><button id="cancel-stop" class="quiet-button">Keep running</button><button id="confirm-stop" class="quiet-button">Stop job</button></div></dialog>
+<script>
+const $ = id => document.getElementById(id);
+const base = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+let selectedKey = new URLSearchParams(location.hash.slice(1)).get('run'), data = null, source = null, selectedEvent = null;
+let mode = 'duration', detailMode = 'content', visibleCount = 150, lastPayload = '', connected = false, receivedAt = 0;
+let eventContent = null, contentKey = null, contentError = null, contentLoading = false, contentAt = 0, contentAbort = null;
+let inspectorSignature = '';
+const nf = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+const num = value => value == null ? '—' : nf.format(value);
+const duration = ms => ms == null ? '—' : ms < 1000 ? Math.max(0, Math.round(ms)) + 'ms' : ms < 60_000 ? (ms / 1000).toFixed(1) + 's' : ms < 3_600_000 ? Math.floor(ms / 60_000) + 'm ' + Math.floor(ms % 60_000 / 1000) + 's' : Math.floor(ms / 3_600_000) + 'h ' + Math.floor(ms % 3_600_000 / 60_000) + 'm';
+const clock = at => at ? new Date(at).toLocaleTimeString([], { hour12: false }) : '—';
+const human = value => String(value ?? '').replaceAll('_', ' ');
+const running = event => !event.endedAt && ['running','pending','streaming','in_progress','started'].includes(event.status);
+function node(tag, className, text) { const el = document.createElement(tag); if (className) el.className = className; if (text != null) el.textContent = text; return el; }
+function setConnection(ok) { connected = ok; $('connection').classList.toggle('offline', !ok); $('connection-label').textContent = ok ? 'Live' : 'Reconnecting'; $('stop').disabled = !ok; $('retry').disabled = !ok; }
+function connect() {
+  source?.close(); lastPayload = ''; setConnection(false);
+  source = new EventSource(base + 'events' + (selectedKey ? '?run=' + encodeURIComponent(selectedKey) : ''));
+  source.onmessage = event => {
+    receivedAt = Date.now(); setConnection(true);
+    try { const next = JSON.parse(event.data); const signature = JSON.stringify([next.runs, next.selected]);
+      data = next; if (signature !== lastPayload) { lastPayload = signature; render(); } updateClock();
+    } catch { setConnection(false); }
+  };
+  source.onerror = () => setConnection(false);
+}
+function selectRun(key) { selectedKey = key; selectedEvent = null; visibleCount = 150; history.replaceState(null, '', base + '#run=' + key); $('search').value = ''; $('follow').checked = true; connect(); }
+function render() {
+  const focused = document.activeElement?.dataset.focus;
+  const runs = data.runs, run = data.selected, nav = $('runs'); $('run-count').textContent = runs.length; nav.replaceChildren();
+  for (const item of runs) { const button = node('button', 'job'); button.setAttribute('aria-current', String(item.key === run?.key)); button.setAttribute('aria-label', item.title + ', ' + human(item.phase));
+    button.dataset.focus = 'job:' + item.key;
+    const title = node('div', 'job-title'); title.append(node('span','dot'), node('span','', item.title));
+    button.append(title, node('div','job-meta',(item.workerLabel ?? 'ZCode') + ' · ' + human(item.phase)), node('div','job-meta',item.model)); button.onclick = () => selectRun(item.key); nav.append(button); }
+  if (!runs.length) nav.append(node('div','empty-small','No active jobs'));
+  for (const id of ['meta','overview','workspace']) $(id).hidden = !run; $('empty').hidden = Boolean(run); $('status').hidden = !run;
+  $('title').textContent = run?.title ?? 'Trajectory'; $('stop').hidden = !run?.canStop; $('retry').hidden = !run?.canRetryNotification;
+  if (!run) { $('alert').hidden = true; return; }
+  // Keep the selected finished run visible, while removing it from the active sidebar.
+  if (!selectedKey) { selectedKey = run.key; history.replaceState(null, '', base + '#run=' + run.key); queueMicrotask(connect); }
+  $('status').textContent = human(run.active ? run.phase : run.status);
+  const meta = $('meta'); meta.replaceChildren();
+  const jobParts = run.job ? [`stage ${run.job.stage}`, `round ${run.job.round}`, `corrections ${run.job.correctionsUsed}/${run.job.maxAutoCorrections}`] : [];
+  if (run.job?.reviewUsage) jobParts.push(`Astra ${num(run.job.reviewUsage.inputTokens)} in / ${num(run.job.reviewUsage.cachedInputTokens)} cached / ${num(run.job.reviewUsage.outputTokens)} out`);
+  for (const [index, [value, cls]] of [[(run.workerLabel ?? 'ZCode') + ' · ' + run.model,'model-name'], [num(run.trajectory?.turns) + ' turns',''], [num(run.usage?.modelCalls) + ' model calls',''], [num(run.trajectory?.toolCalls) + ' tool calls',''], [num(run.usage?.inputTokens) + ' in / ' + num(run.usage?.outputTokens) + ' out',''], ...(jobParts.length ? [[jobParts.join(' · '),'']] : [])].entries()) { if (index) meta.append(node('span','separator','·')); meta.append(node('span',cls,value)); }
+  const warning = run.alert || (!run.telemetryAvailable ? run.telemetryReason || 'Waiting for local activity records.' : '');
+  $('alert').textContent = warning; $('alert').hidden = !warning;
+  renderTimeline(); renderRows(); renderInspector();
+  if (focused) [...document.querySelectorAll('[data-focus]')].find(x => x.dataset.focus === focused)?.focus({preventScroll:true});
+}
+function renderTimeline() {
+  const run = data?.selected; if (!run) return;
+  const events = run.trajectory?.events ?? [], timeline = $('timeline'); timeline.replaceChildren();
+  const start = Math.min(run.startedAt, ...events.map(x => x.startedAt));
+  const end = Math.max(start + 1, run.endedAt ?? run.lastActivityAt ?? start, ...events.map(x => x.endedAt ?? x.startedAt));
+  let turn = 0, calls = 0;
+  const positioned = events.map(event => ({ event, turn: event.kind === 'model' ? ++turn : turn, call: ['tool','model'].includes(event.kind) ? ++calls : calls }));
+  const total = mode === 'duration' ? end - start : mode === 'turns' ? Math.max(1,turn + 1) : Math.max(1,calls + 1);
+  for (const [label,kinds] of [['Input',['input','context']],['Model',['model']],['Tools',['tool']]]) {
+    const lane = node('div','lane'), track = node('div','track'); lane.append(node('span','',label), track);
+    for (const item of positioned.filter(x => kinds.includes(x.event.kind))) {
+      const event = item.event, x = mode === 'duration' ? event.startedAt - start : mode === 'turns' ? item.turn : item.call;
+      const width = mode === 'duration' ? Math.max(0,(event.endedAt ?? event.startedAt) - event.startedAt) : .65;
+      const button = node('button', 'span ' + event.kind + (running(event) ? ' running' : '') + (event.id === selectedEvent ? ' selected' : ''));
+      button.style.left = Math.min(99.7, Math.max(0,x / total * 100)) + '%'; button.style.width = Math.max(.15,width / total * 100) + '%';
+      button.title = event.label + ' · ' + clock(event.startedAt) + ' · ' + (running(event) ? 'running' : duration(event.endedAt == null ? null : event.endedAt - event.startedAt)); button.setAttribute('aria-label',button.title);
+      button.onclick = () => { selectEvent(event.id); const index = events.findIndex(x => x.id === event.id); visibleCount = Math.max(visibleCount,events.length-index); $('search').value = ''; renderRows(); [...$('rows').querySelectorAll('.event')].find(x => x.dataset.id === event.id)?.scrollIntoView({block:'center'}); }; track.append(button);
+    } timeline.append(lane);
+  }
+  const axis = node('div','axis'); axis.append(node('span','',mode === 'duration' ? clock(start) : '0'),node('span','',mode === 'duration' ? duration(end-start) + ' recorded' : (mode === 'turns' ? turn + ' model turns' : calls + ' calls'))); timeline.append(axis);
+}
+function renderRows() {
+  const focused = document.activeElement?.dataset.focus;
+  const run = data?.selected; if (!run) return; const all = run.trajectory?.events ?? [], filter = $('search').value.toLowerCase();
+  const events = all.map((event,index) => ({event,index})).filter(({event}) => (event.label + ' ' + event.kind + ' ' + event.status).toLowerCase().includes(filter));
+  $('event-count').textContent = events.length; const rows = $('rows'), scroll = rows.scrollTop; rows.replaceChildren();
+  if (events.length > visibleCount) { const older = node('button','older','Show earlier events (' + (events.length-visibleCount) + ')'); older.onclick = () => { visibleCount += 150; $('follow').checked = false; const oldHeight = rows.scrollHeight; renderRows(); rows.scrollTop += rows.scrollHeight-oldHeight; }; rows.append(older); }
+  for (const {event,index} of events.slice(-visibleCount)) {
+    const row = node('button','event'); row.dataset.id = event.id; row.dataset.focus = 'event:' + event.id; row.setAttribute('aria-pressed',String(event.id === selectedEvent));
+    const description = node('div'); description.style.minWidth = '0'; description.append(node('div','event-label',event.label), node('div','event-sub',human(event.status) + ' · ' + clock(event.startedAt)));
+    row.append(node('span','index',String(index+1).padStart(3,'0')),node('span','role '+event.kind,({input:'USER',model:'MODEL',tool:'TOOL',context:'CONTEXT'})[event.kind]),description,node('span','duration'+(running(event)?' running-label':''),running(event)?'running':duration(event.endedAt == null ? null : event.endedAt-event.startedAt)));
+    row.onclick = () => selectEvent(event.id); rows.append(row);
+  }
+  if (!events.length) rows.append(node('div','empty-small',filter ? 'No matching events' : 'Waiting for recorded events…'));
+  $('event-note').textContent = run.trajectory?.truncated ? 'Most recent recorded events' : 'Recorded events';
+  rows.scrollTop = $('follow').checked ? rows.scrollHeight : scroll;
+  if (focused) [...rows.querySelectorAll('[data-focus]')].find(x => x.dataset.focus === focused)?.focus({preventScroll:true});
+}
+function selectEvent(id) { selectedEvent = id; detailMode = 'content'; $('follow').checked = false; renderRows(); renderInspector(); renderTimeline(); const narrow = matchMedia('(max-width:760px)').matches; $('inspector').classList.toggle('open', narrow); if (narrow) $('inspector').querySelector('.mobile-detail')?.focus(); }
+async function loadContent({ more = null, force = false } = {}) {
+  const run = data?.selected, event = run?.trajectory?.events?.find(x => x.id === selectedEvent);
+  if (!run || !event || detailMode !== 'content') return;
+  const key = run.key + ':' + event.id;
+  if (key !== contentKey) { contentAbort?.abort(); contentKey = key; eventContent = null; contentError = null; contentLoading = false; contentAt = 0; }
+  if (contentLoading || (!force && !more && contentAt && (!run.active || Date.now() - contentAt < 3000))) return;
+  // Once the user expands a result, keep those pages stable until they explicitly refresh it.
+  if (!force && !more && eventContent?.sections.some(section => section.expanded)) return;
+  const controller = new AbortController(); contentAbort = controller; contentLoading = true; contentError = null;
+  const query = new URLSearchParams({ event: event.id });
+  if (more) { query.set('field', more.field); query.set('offset', more.nextOffset); }
+  try {
+    const response = await fetch(base + 'runs/' + run.key + '/content?' + query, {signal: controller.signal});
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Content could not be loaded.');
+    if (contentKey !== key) return;
+    if (more && eventContent) {
+      const page = result.sections.find(section => section.field === more.field);
+      if (page) eventContent.sections = eventContent.sections.map(section => section.field === page.field ? {...page, offset: 0, text: section.text + page.text, expanded: true} : section);
+    } else eventContent = result;
+  } catch (error) { if (error.name !== 'AbortError' && contentKey === key) contentError = error.message; }
+  finally { if (contentKey === key && contentAbort === controller) { contentLoading = false; contentAt = Date.now(); renderInspector(); } }
+}
+function renderContent(panel) {
+  const key = data.selected.key + ':' + selectedEvent;
+  if (contentKey !== key || (!eventContent && !contentError)) panel.append(node('p','content-status','Loading event content…'));
+  if (contentKey === key && contentError) { const retry = node('button','quiet-button','Retry'); retry.onclick = () => void loadContent({force:true}); panel.append(node('p','content-status',contentError),retry); }
+  if (contentKey === key && eventContent) {
+    if (eventContent.note) panel.append(node('p','content-status',eventContent.note));
+    for (const section of eventContent.sections) {
+      const block = node('section','content-section'), heading = node('div','content-heading'), copy = node('button','quiet-button','Copy');
+      copy.setAttribute('aria-label','Copy ' + section.title.toLowerCase());
+      copy.onclick = async () => { try { await navigator.clipboard.writeText(section.text); copy.textContent = 'Copied'; } catch { copy.textContent = 'Select text to copy'; } };
+      heading.append(node('h3','',section.title),copy); block.append(heading,node('pre','',section.text));
+      if (section.nextOffset != null) { const more = node('button','quiet-button content-more','Load more'); more.disabled = contentLoading; more.onclick = () => void loadContent({more:section}); block.append(node('p','note',section.nextOffset.toLocaleString() + ' of ' + section.totalChars.toLocaleString() + ' characters loaded'),more); }
+      panel.append(block);
+    }
+    const refresh = node('button','quiet-button','Refresh content'); refresh.disabled = contentLoading; refresh.onclick = () => void loadContent({force:true}); panel.append(refresh);
+  }
+  panel.append(node('p','note','Loaded from the local session. Viewing content makes no model requests.'));
+  void loadContent();
+}
+function renderInspector() {
+  const panel = $('inspector'), scroll = panel.scrollTop, event = data?.selected?.trajectory?.events?.find(x => x.id === selectedEvent);
+  const signature = JSON.stringify([data?.selected?.key,event,detailMode,contentKey,contentError,eventContent,event ? null : [data?.selected?.todos,data?.selected?.report,data?.selected?.notifications]]);
+  if (signature === inspectorSignature) return;
+  inspectorSignature = signature; panel.replaceChildren();
+  const head = node('div','inspector-head','EVENT DETAILS'), close = node('button','mobile-detail','Close'); close.dataset.focus = 'inspector-close'; close.onclick = () => panel.classList.remove('open'); head.append(close); panel.append(head);
+  if (!event) {
+    panel.append(node('div','detail-empty','Select an event to read its response, tool input or result.'));
+    const run = data?.selected;
+    if (run?.todos?.length) { panel.append(node('p','eyebrow','Current plan')); for (const todo of run.todos) panel.append(node('p','note',(todo.status === 'completed' ? '✓ ' : todo.status === 'in_progress' ? '→ ' : '○ ') + todo.content)); }
+    for (const notification of run?.notifications ?? []) panel.append(node('p','note','Notification · ' + human(notification.kind) + ' · ' + notification.state));
+    if (run?.report) { panel.append(node('p','eyebrow','Report'),node('pre','',run.report)); }
+    return;
+  }
+  panel.append(node('span','role '+event.kind,event.kind.toUpperCase()),node('h2','',event.label),node('div','sub',human(event.status)));
+  const tabs = node('div','tabs'); for (const name of ['content','summary','metadata']) { const button = node('button','',name[0].toUpperCase()+name.slice(1)); button.dataset.focus = 'detail-' + name; button.setAttribute('aria-pressed',String(detailMode===name)); button.onclick = () => { detailMode=name;renderInspector(); [...panel.querySelectorAll('[data-focus]')].find(x => x.dataset.focus === 'detail-' + name)?.focus(); }; tabs.append(button); } panel.append(tabs);
+  if (detailMode === 'content') { renderContent(panel); panel.scrollTop = scroll; return; }
+  if (detailMode === 'metadata') panel.append(node('pre','',JSON.stringify(event,null,2)));
+  else { const dl = node('dl'); const fields = [['Started',clock(event.startedAt)],['Finished',event.endedAt ? clock(event.endedAt) : running(event) ? 'In progress' : 'Not recorded'],['Duration',duration(event.endedAt==null?null:event.endedAt-event.startedAt)]];
+    if(event.kind==='model')fields.push(['Input tokens',num(event.inputTokens)],['Output tokens',num(event.outputTokens)],['Cache read',num(event.cacheReadTokens)],['Attempt',event.attempt ?? '—']);
+    fields.push(['Source',event.source],['Record',event.recordId]); for(const [key,value] of fields)dl.append(node('dt','',key),node('dd','',value)); panel.append(dl); }
+  panel.scrollTop = scroll;
+}
+function updateClock() { const run=data?.selected;if(!run)return; $('updated').textContent = connected ? 'Updated ' + clock(receivedAt) : 'Connection lost · cached'; }
+$('rows').addEventListener('scroll',()=>{const el=$('rows'); if(el.scrollHeight-el.scrollTop-el.clientHeight>50)$('follow').checked=false;},{passive:true});
+$('search').oninput=renderRows; $('follow').onchange=()=>{if($('follow').checked)$('rows').scrollTop=$('rows').scrollHeight;};
+for(const button of document.querySelectorAll('[data-mode]'))button.onclick=()=>{mode=button.dataset.mode;for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',String(b===button));renderTimeline();};
+async function action(name) { const run=data?.selected;if(!run||!connected)return;try{const response=await fetch(base+'runs/'+run.key+'/'+name,{method:'POST'});const result=await response.json();if(!response.ok)throw new Error(result.error);$('alert').textContent=result.message;$('alert').hidden=false;}catch(error){$('alert').textContent=error.message;$('alert').hidden=false;} }
+$('stop').onclick=()=>$('stop-dialog').showModal();$('cancel-stop').onclick=()=>$('stop-dialog').close();$('confirm-stop').onclick=()=>{$('stop-dialog').close();void action('stop');};$('retry').onclick=()=>void action('retry-notification');
+window.addEventListener('hashchange',()=>{selectedKey=new URLSearchParams(location.hash.slice(1)).get('run');selectedEvent=null;connect();});
+window.addEventListener('keydown',event=>{if(event.key==='Escape')$('inspector').classList.remove('open');});
+setInterval(()=>{if(receivedAt&&Date.now()-receivedAt>10_000)setConnection(false);updateClock();if(connected)void loadContent();},1000);
+connect();
+</script>
+</body>
+</html>

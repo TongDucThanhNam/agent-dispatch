@@ -1,0 +1,1 @@
+The run calls back this Codex task when it ends (`notify: codex`, thread from CODEX_THREAD_ID; override with `--thread UUID`). After the receipt, give the user the dashboard `url` and yield. The callback names the next commands. Do not poll or loop on `status`; one read after launch is enough to confirm startup.

@@ -1,5 +1,6 @@
 node_modules/
-dist/
-.test-state/
-work/
+.zcode-dispatch/
+.tmp/
 *.log
+coverage/
+work/

@@ -1,0 +1,2 @@
+Runs are launched without a callback here (`--notify auto` resolves to none). After `launch`, start `{{CLI}} wait <ref>` with your shell tool in background mode (`run_in_background`). It makes no model calls and exits 0 when the run settles, with the outcome in `data.status`; that re-invokes you. Do not poll with sleeps or schedules.
+Write briefs with your file-writing tool, or a PowerShell single-quoted here-string (`@'…'@ | Set-Content -Encoding utf8NoBOM <file>`); avoid bash heredocs for text with apostrophes.

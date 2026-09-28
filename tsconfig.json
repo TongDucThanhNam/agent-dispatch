@@ -3,15 +3,16 @@
     "target": "ESNext",
     "module": "Preserve",
     "moduleResolution": "bundler",
-    "jsx": "react-jsx",
     "strict": true,
+    "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
     "noEmit": true,
-    "allowJs": true,
-    "checkJs": false,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "paths": { "@/*": ["./src/web/*"] },
+    "resolveJsonModule": true,
     "types": ["bun"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

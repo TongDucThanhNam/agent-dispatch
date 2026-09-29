@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePanelRef } from 'react-resizable-panels';
 import { CircleAlert, Menu, TerminalSquare, TriangleAlert, WifiOff, Workflow } from 'lucide-react';
 import { Sidebar } from '@/components/sidebar';
 import { EventDetail } from '@/components/run/event-detail';
@@ -6,7 +7,6 @@ import { Kpis } from '@/components/run/kpis';
 import { Pipeline } from '@/components/run/pipeline';
 import { RunHeader } from '@/components/run/run-header';
 import { RunSummary } from '@/components/run/run-summary';
-import { Timeline, type Range } from '@/components/run/timeline';
 import { TrajectoryTable } from '@/components/run/trajectory-table';
 import { Button } from '@/components/ui/button';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -15,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { clock } from '@/lib/format';
 import { useHashRun, useMediaQuery } from '@/lib/hooks';
 import { KIND_FILTERS, type KindFilter } from '@/lib/status';
-import type { Run } from '@/lib/types';
+import type { EventFocus, Run } from '@/lib/types';
 import { usePreviewStore } from '@/lib/use-previews';
 import { useNow, useSnapshot, type Connection } from '@/lib/use-snapshot';
 import { cn } from '@/lib/utils';
@@ -75,30 +75,42 @@ function RunView({ run, online, wide, onSelectRun, onOpenSidebar }: {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [kind, setKind] = useState<KindFilter>('all');
   const [search, setSearch] = useState('');
-  const [range, setRange] = useState<Range | null>(null);
+  const [focus, setFocus] = useState<EventFocus | null>(null);
   const [follow, setFollow] = useState(run.active);
   const events = run.trajectory.events;
   const selected = useMemo(() => events.find(event => event.id === selectedId) ?? null, [events, selectedId]);
   const roomy = useMediaQuery('(min-width: 1280px)');
 
   const onSelect = useCallback((id: string | null) => { setSelectedId(id); if (id) setFollow(false); }, []);
-  const onRange = useCallback((next: Range | null) => { setRange(next); if (next) setFollow(false); }, []);
-  // A timeline click reveals the event even when the table filters hide it.
+  const onFocus = useCallback((next: EventFocus | null) => { setFocus(next); if (next) setFollow(false); }, []);
+  // Links from insights and event details reveal the event even when the table filters hide it.
   const jumpTo = useCallback((id: string) => {
     const event = events.find(e => e.id === id);
     if (event && !(KIND_FILTERS.find(f => f.value === kind)?.test(event) ?? true)) setKind('all');
     if (search) setSearch('');
-    if (event && range && !(event.startedAt <= range.end && (event.endedAt ?? event.startedAt) >= range.start)) setRange(null);
+    if (focus && !focus.ids.has(id)) setFocus(null);
     onSelect(id);
-  }, [events, kind, search, range, onSelect]);
+  }, [events, kind, search, focus, onSelect]);
+
+  // The event panel can take the whole width for long outputs and diffs; the trajectory collapses beside it.
+  const eventsPanel = usePanelRef();
+  const [maximized, setMaximized] = useState(false);
+  const onMaximize = useCallback(() => {
+    const panel = eventsPanel.current;
+    if (panel?.isCollapsed()) panel.expand(); else panel?.collapse();
+  }, [eventsPanel]);
+  useEffect(() => { if (!selected && maximized) eventsPanel.current?.expand(); }, [selected, maximized, eventsPanel]);
 
   const table = (
     <TrajectoryTable run={run} previews={previews} selectedId={selectedId} onSelect={onSelect} kind={kind} onKind={setKind}
-      search={search} onSearch={setSearch} range={range} onRange={onRange} follow={follow} onFollow={setFollow} />
+      search={search} onSearch={setSearch} focus={focus} onFocus={onFocus} follow={follow} onFollow={setFollow} />
   );
-  const inspector = selected
-    ? <EventDetail key={selected.id} run={run} event={selected} previews={previews} onBack={() => setSelectedId(null)} onSelect={jumpTo} />
-    : <RunSummary run={run} now={now} />;
+  const detail = (maximize: boolean) => selected && (
+    <EventDetail key={selected.id} run={run} event={selected} previews={previews} onBack={() => setSelectedId(null)} onSelect={jumpTo} onFocus={onFocus}
+      maximized={maximize ? maximized : undefined} onMaximize={maximize ? onMaximize : undefined} />
+  );
+  // The summary stays mounted under an open event so its tab and scroll survive a detour into the details.
+  const summary = <RunSummary run={run} now={now} previews={previews} onFocus={onFocus} onSelect={jumpTo} />;
 
   return (
     <>
@@ -113,25 +125,28 @@ function RunView({ run, online, wide, onSelectRun, onOpenSidebar }: {
             </div>
           )}
           <Kpis run={run} now={now} />
-          <Timeline run={run} events={events} selectedId={selectedId} onSelect={jumpTo} range={range} onRange={onRange} />
         </div>
         {wide ? (
           <div className="min-h-[360px] flex-1 border-t">
             <ResizablePanelGroup orientation="horizontal" id="agent-dispatch.workspace">
-              <ResizablePanel id="events" defaultSize={roomy ? '62%' : '58%'} minSize="36%">{table}</ResizablePanel>
+              <ResizablePanel id="events" defaultSize={roomy ? '58%' : '54%'} minSize="34%" collapsible collapsedSize={0} collapsedThreshold="4%"
+                panelRef={eventsPanel} onResize={size => setMaximized(size.asPercentage === 0)}>{table}</ResizablePanel>
               <ResizableHandle />
-              <ResizablePanel id="inspector" defaultSize={roomy ? '38%' : '42%'} minSize="26%" className="bg-card/40">{inspector}</ResizablePanel>
+              <ResizablePanel id="inspector" defaultSize={roomy ? '42%' : '46%'} minSize="28%" className="bg-card/40">
+                {detail(true)}
+                <div className={cn('h-full', selected && 'hidden')}>{summary}</div>
+              </ResizablePanel>
             </ResizablePanelGroup>
           </div>
         ) : (
           <>
             <div className="h-[70vh] min-h-[380px] shrink-0 border-y">{table}</div>
-            <div className="min-h-[60vh] shrink-0"><RunSummary run={run} now={now} /></div>
+            <div className="min-h-[60vh] shrink-0">{summary}</div>
             <Sheet open={Boolean(selected)} onOpenChange={open => { if (!open) setSelectedId(null); }}>
               <SheetContent side="right" className="p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[560px]">
                 <SheetTitle className="sr-only">Event details</SheetTitle>
                 <SheetDescription className="sr-only">Recorded content and fields of the selected event</SheetDescription>
-                {selected && <EventDetail key={selected.id} run={run} event={selected} previews={previews} onBack={() => setSelectedId(null)} onSelect={jumpTo} />}
+                {detail(false)}
               </SheetContent>
             </Sheet>
           </>

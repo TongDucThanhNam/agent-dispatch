@@ -4,7 +4,7 @@ import {
   type ColumnFiltersState, type FilterFn,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ListFilter, Search, X } from 'lucide-react';
+import { ChevronDown, Crosshair, ListFilter, Search, X } from 'lucide-react';
 import { KindChip } from '@/components/kind-chip';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -13,24 +13,21 @@ import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { clock, duration, full, human, num, stamp } from '@/lib/format';
 import { eventName, isFailed, isRunning, KIND_FILTERS, kindMeta, type KindFilter } from '@/lib/status';
-import type { Run, TrajectoryEvent } from '@/lib/types';
+import type { EventFocus, Run, TrajectoryEvent } from '@/lib/types';
 import type { PreviewStore } from '@/lib/use-previews';
 import { cn } from '@/lib/utils';
-import type { Range } from './timeline';
 
 interface Item { event: TrajectoryEvent; index: number; search: string }
 
 const byKind: FilterFn<any, Item> = (row, _id, value: KindFilter) => (KIND_FILTERS.find(f => f.value === value)?.test ?? (() => true))(row.original.event);
-const inRange: FilterFn<any, Item> = (row, _id, range: Range) => {
-  const event = row.original.event;
-  return event.startedAt <= range.end && (event.endedAt ?? event.startedAt) >= range.start;
-};
+// A focus is a set of events picked elsewhere (an insight, "same call ran N×"), shown in trajectory order.
+const inFocus: FilterFn<any, Item> = (row, _id, ids: ReadonlySet<string>) => ids.has(row.original.event.id);
 
 const features = tableFeatures({
   columnFilteringFeature,
   globalFilteringFeature,
   filteredRowModel: createFilteredRowModel(),
-  filterFns: { includesString: filterFn_includesString, byKind, inRange },
+  filterFns: { includesString: filterFn_includesString, byKind, inFocus },
   columnMeta: {} as { className?: string },
 });
 const helper = createColumnHelper<typeof features, Item>();
@@ -40,10 +37,10 @@ const GRID = 'grid grid-cols-[82px_minmax(0,1fr)_56px] @md:grid-cols-[92px_minma
 
 const HEADER_HEIGHT = 28;
 
-export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onKind, search, onSearch, range, onRange, follow, onFollow }: {
+export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onKind, search, onSearch, focus, onFocus, follow, onFollow }: {
   run: Run; previews: PreviewStore | null; selectedId: string | null; onSelect: (id: string | null) => void;
   kind: KindFilter; onKind: (kind: KindFilter) => void; search: string; onSearch: (search: string) => void;
-  range: Range | null; onRange: (range: Range | null) => void; follow: boolean; onFollow: (follow: boolean) => void;
+  focus: EventFocus | null; onFocus: (focus: EventFocus | null) => void; follow: boolean; onFollow: (follow: boolean) => void;
 }) {
   const events = run.trajectory.events;
   const version = previews?.version ?? 0;
@@ -62,7 +59,7 @@ export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onK
 
   const columns = useMemo(() => helper.columns([
     helper.accessor(item => item.index, {
-      id: 'index', header: '#', enableGlobalFilter: false, meta: { className: 'hidden @xl:block' },
+      id: 'index', header: '#', filterFn: 'inFocus', enableGlobalFilter: false, meta: { className: 'hidden @xl:block' },
       cell: ({ getValue }) => <span className="font-mono text-[10.5px] text-muted-foreground/70">{String(getValue() + 1).padStart(3, '0')}</span>,
     }),
     helper.accessor(item => item.event.kind, {
@@ -78,7 +75,7 @@ export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onK
       cell: ({ row }) => <Tokens event={row.original.event} />,
     }),
     helper.accessor(item => item.event.startedAt, {
-      id: 'time', header: () => <span className="block text-right">Time</span>, filterFn: 'inRange', enableGlobalFilter: false,
+      id: 'time', header: () => <span className="block text-right">Time</span>, enableGlobalFilter: false,
       cell: ({ row }) => {
         const event = row.original.event;
         return isRunning(event)
@@ -90,8 +87,8 @@ export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onK
 
   const columnFilters = useMemo<ColumnFiltersState>(() => [
     ...(kind !== 'all' ? [{ id: 'kind', value: kind }] : []),
-    ...(range ? [{ id: 'time', value: range }] : []),
-  ], [kind, range]);
+    ...(focus ? [{ id: 'index', value: focus.ids }] : []),
+  ], [kind, focus]);
 
   const table = useTable({
     features, columns, data,
@@ -124,7 +121,7 @@ export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onK
     if (follow && rows.length) virtualizer.scrollToIndex(rows.length - 1, { align: 'end' });
   }, [follow, rows.length, virtualizer]);
 
-  // Keep a selection made elsewhere (timeline, keyboard) in view.
+  // Keep a selection made elsewhere (insights, linked events, keyboard) in view.
   useEffect(() => {
     if (!selectedId) return;
     const index = rows.findIndex(row => row.id === selectedId);
@@ -164,7 +161,7 @@ export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onK
   }, []);
 
   const filtered = rows.length !== events.length;
-  const clearFilters = () => { onKind('all'); onSearch(''); onRange(null); };
+  const clearFilters = () => { onKind('all'); onSearch(''); onFocus(null); };
 
   return (
     <section aria-label="Trajectory" className="@container flex h-full min-h-0 flex-col">
@@ -182,6 +179,17 @@ export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onK
             ))}
           </ToggleGroup>
         </div>
+        {focus && (
+          <span className="inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-brand/30 bg-brand/8 pr-1 pl-2 text-[11px] text-foreground">
+            <Crosshair className="size-3.5 shrink-0 text-brand" aria-hidden />
+            <span className="min-w-0 truncate" title={focus.label}>{focus.label}</span>
+            <span className="shrink-0 rounded-sm bg-background/70 px-1 text-[10px] text-muted-foreground tabular">{num(focus.ids.size)}</span>
+            <button type="button" onClick={() => onFocus(null)} aria-label="Show all events" title="Show all events"
+              className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-background/70 hover:text-foreground">
+              <X className="size-3" />
+            </button>
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-3">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />

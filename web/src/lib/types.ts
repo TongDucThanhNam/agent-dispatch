@@ -137,3 +137,6 @@ export interface ContentSection {
 export interface EventContent { note?: string; sections: ContentSection[] }
 
 export interface Preview { text?: string; result?: string }
+
+/** A set of events to show on their own in the trajectory, with what they have in common. */
+export interface EventFocus { label: string; ids: ReadonlySet<string> }

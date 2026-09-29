@@ -1,26 +1,26 @@
-import { useMemo } from 'react';
-import {
-  createColumnHelper, createSortedRowModel, rowSortingFeature, sortFn_basic, sortFn_text, tableFeatures, useTable,
-} from '@tanstack/react-table';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { ArrowDown, ArrowUp, Bell, Circle, CircleCheck, CircleDot, FileText, Info, ListTodo } from 'lucide-react';
+import { Bell, Circle, CircleCheck, CircleDot, FileText, Info, ListTodo } from 'lucide-react';
+import { Markdown } from '@/components/code';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { clock, duration, full, human, num, pct, stamp } from '@/lib/format';
 import { runState, stateLabel, workerTitle } from '@/lib/status';
-import type { Run, ToolStat } from '@/lib/types';
+import type { EventFocus, Run } from '@/lib/types';
+import type { PreviewStore } from '@/lib/use-previews';
 import { cn } from '@/lib/utils';
-import { Fields, Heading } from './event-detail';
+import { InsightsPanel } from './insights';
+import { Fields, Heading } from './parts';
 
-/** The inspector when no event is selected: the run at a glance, its report and its plan. */
-export function RunSummary({ run, now }: { run: Run; now: number }) {
+/** The inspector when no event is selected: what went wrong and where the time went, the run at a glance, its report and its plan. */
+export function RunSummary({ run, now, previews, onFocus, onSelect }: {
+  run: Run; now: number; previews: PreviewStore | null; onFocus: (focus: EventFocus | null) => void; onSelect: (id: string) => void;
+}) {
   const done = run.todos.filter(todo => todo.status === 'completed').length;
   return (
-    <Tabs defaultValue="overview" className="flex h-full min-h-0 flex-col gap-0">
+    <Tabs defaultValue="insights" className="flex h-full min-h-0 flex-col gap-0">
       <div className="border-b px-4 pt-3">
         <div className="text-[10.5px] font-semibold tracking-wider text-muted-foreground uppercase">Run summary</div>
         <TabsList variant="line" className="mt-1 h-9 w-full justify-start gap-3 px-0">
+          <TabsTrigger value="insights" className="flex-none px-0.5">Insights</TabsTrigger>
           <TabsTrigger value="overview" className="flex-none px-0.5">Overview</TabsTrigger>
           <TabsTrigger value="report" className="flex-none gap-1.5 px-0.5">
             Report{run.report && <span className="size-1.5 rounded-full bg-success" aria-label="available" />}
@@ -30,10 +30,13 @@ export function RunSummary({ run, now }: { run: Run; now: number }) {
           </TabsTrigger>
         </TabsList>
       </div>
+      <TabsContent value="insights" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <InsightsPanel run={run} previews={previews} now={now} onFocus={onFocus} onSelect={onSelect} />
+      </TabsContent>
       <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto px-4 py-3"><Overview run={run} now={now} /></TabsContent>
       <TabsContent value="report" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {run.report
-          ? <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{run.report}</ReactMarkdown></div>
+          ? <Markdown text={run.report} />
           : <Empty icon={FileText} text={run.active ? 'The worker writes its report when it finishes.' : 'This run did not leave a report.'} />}
       </TabsContent>
       <TabsContent value="plan" className="min-h-0 flex-1 overflow-y-auto px-4 py-3"><Plan run={run} /></TabsContent>
@@ -109,13 +112,6 @@ function Overview({ run, now }: { run: Run; now: number }) {
         </>
       )}
 
-      {s.tools?.length ? (
-        <>
-          <Heading aside={`${full(t.toolCalls)} calls${s.toolErrors ? ` · ${s.toolErrors} errors` : ''}`}>Tools</Heading>
-          <ToolsTable tools={s.tools} />
-        </>
-      ) : null}
-
       {run.notifications.length > 0 && (
         <>
           <Heading>Notifications</Heading>
@@ -133,74 +129,6 @@ function Overview({ run, now }: { run: Run; now: number }) {
         Read from local run records{run.updatedAt ? ` · updated ${clock(run.updatedAt)}` : ''}. Viewing makes no model requests.
       </p>
     </div>
-  );
-}
-
-const toolFeatures = tableFeatures({
-  rowSortingFeature,
-  sortedRowModel: createSortedRowModel(),
-  sortFns: { basic: sortFn_basic, text: sortFn_text },
-  columnMeta: {} as { align?: 'right' },
-});
-const toolHelper = createColumnHelper<typeof toolFeatures, ToolStat>();
-
-function ToolsTable({ tools }: { tools: ToolStat[] }) {
-  const max = Math.max(1, ...tools.map(tool => tool.calls));
-  const columns = useMemo(() => toolHelper.columns([
-    toolHelper.accessor('name', {
-      header: 'Tool', sortFn: 'text',
-      cell: ({ row }) => (
-        <div className="min-w-0">
-          <div className="truncate font-mono text-[11.5px]">{row.original.name}</div>
-          <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-kind-tool/70" style={{ width: `${row.original.calls / max * 100}%` }} />
-          </div>
-        </div>
-      ),
-    }),
-    toolHelper.accessor('calls', { header: 'Calls', sortFn: 'basic', sortDescFirst: true, meta: { align: 'right' }, cell: ({ getValue }) => full(getValue()) }),
-    toolHelper.accessor('errors', {
-      header: 'Err', sortFn: 'basic', sortDescFirst: true, meta: { align: 'right' },
-      cell: ({ getValue }) => getValue() ? <span className="text-destructive">{getValue()}</span> : <span className="text-muted-foreground/60">·</span>,
-    }),
-    toolHelper.accessor('ms', { header: 'Time', sortFn: 'basic', sortDescFirst: true, meta: { align: 'right' }, cell: ({ getValue }) => duration(getValue()) }),
-  ]), [max]);
-  const table = useTable({
-    features: toolFeatures, columns, data: tools,
-    initialState: { sorting: [{ id: 'calls', desc: true }] },
-    getRowId: tool => tool.name,
-  });
-  return (
-    <table className="w-full table-fixed text-[12px]">
-      <colgroup><col /><col className="w-14" /><col className="w-10" /><col className="w-16" /></colgroup>
-      <thead>
-        <tr className="border-b">
-          {table.getHeaderGroups()[0].headers.map(header => {
-            const sorted = header.column.getIsSorted(), right = header.column.columnDef.meta?.align === 'right';
-            return (
-              <th key={header.id} className={cn('pb-1.5 font-medium', right ? 'text-right' : 'text-left')} aria-sort={sorted ? (sorted === 'asc' ? 'ascending' : 'descending') : undefined}>
-                <button type="button" onClick={header.column.getToggleSortingHandler()}
-                  className={cn('inline-flex items-center gap-0.5 text-[10.5px] tracking-wider uppercase hover:text-foreground', sorted ? 'text-foreground' : 'text-muted-foreground')}>
-                  <table.FlexRender header={header} />
-                  {sorted === 'asc' ? <ArrowUp className="size-3" /> : sorted === 'desc' ? <ArrowDown className="size-3" /> : null}
-                </button>
-              </th>
-            );
-          })}
-        </tr>
-      </thead>
-      <tbody>
-        {table.getRowModel().rows.map(row => (
-          <tr key={row.id} className="border-b border-border/50 last:border-0">
-            {row.getAllCells().map(cell => (
-              <td key={cell.id} className={cn('py-1.5 align-top tabular', cell.column.columnDef.meta?.align === 'right' && 'pl-2 text-right')}>
-                <table.FlexRender cell={cell} />
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 

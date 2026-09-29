@@ -104,6 +104,38 @@ test('SSE streams new jobs and completion; token, Host and Origin boundaries are
   } finally {abort.abort();await panel.close();}
 });
 
+test('the built page is served from its folder under a strict script CSP; nothing else is readable', async () => {
+  const root=temp(),dist=path.join(root,'dist');fs.mkdirSync(path.join(dist,'assets'),{recursive:true});
+  fs.writeFileSync(path.join(dist,'index.html'),'<!doctype html><div id="root"></div>');fs.writeFileSync(path.join(dist,'assets','index-abc123.js'),'console.log(1)');
+  fs.writeFileSync(path.join(dist,'assets','index-abc123.js.map'),'{}');fs.writeFileSync(path.join(root,'secret.txt'),'private');
+  const panel=await serveDashboard({root,catalog:createCatalog(root,{telemetry:false}),pageDir:dist});
+  try {
+    const page=await fetch(panel.url);assert.equal(page.status,200);assert.match(page.headers.get('content-type'),/^text\/html/);assert.match(await page.text(),/id="root"/);
+    const csp=page.headers.get('content-security-policy');assert.match(csp,/script-src 'self';/);assert.match(csp,/font-src 'self'/);assert.match(csp,/default-src 'none'/);
+    const script=await fetch(panel.url+'assets/index-abc123.js');assert.equal(script.status,200);assert.match(script.headers.get('content-type'),/^text\/javascript/);
+    assert.match(script.headers.get('cache-control'),/immutable/);assert.equal(await script.text(),'console.log(1)');
+    assert.equal((await fetch(panel.url+'assets/index-abc123.js',{method:'HEAD'})).status,200);
+    for(const bad of ['assets/%2e%2e/%2e%2e/secret.txt','assets/..%5C..%5Csecret.txt','assets/missing.js','assets/index-abc123.js.map','index.html','secret.txt'])
+      assert.ok([404,405].includes((await fetch(panel.url+bad)).status),bad);
+  } finally {await panel.close();}
+  const unbuilt=await serveDashboard({root,catalog:createCatalog(root,{telemetry:false}),pageDir:path.join(root,'missing')});
+  try {const page=await fetch(unbuilt.url);assert.equal(page.status,503);assert.match(await page.text(),/build:web/);assert.equal((await fetch(unbuilt.url+'snapshot')).status,200);}
+  finally {await unbuilt.close();}
+});
+
+test('snapshot items carry the brief title, short ref and the discovery → execution lineage', async () => {
+  const root=temp(),discovery=fixture(root,'disc',{status:'ready_for_review',workerExited:true,endedAt:Date.now()}),execution=fixture(root,'exec');
+  fs.writeFileSync(path.join(discovery.runDir,'assignment.md'),'Intro line\n\n## Discovery: **Simple** mode `v2` ##\n\nBody');
+  save(path.join(execution.runDir,'config.json'),{...execution.config,stage:'execution',discoveryRunDir:discovery.runDir});
+  const discoveryKey=registerRun(discovery.runDir,root),executionKey=registerRun(execution.runDir,root),catalog=createCatalog(root,{telemetry:false});
+  catalog.refresh();
+  const snapshot=catalog.snapshot(executionKey),recent=snapshot.recent.find(x=>x.key===discoveryKey);
+  assert.equal(recent.task,'Discovery: Simple mode v2');assert.equal(typeof recent.ref,'string');assert.ok(recent.ref.length>0);
+  assert.equal(snapshot.runs[0].task,null);assert.equal(snapshot.runs[0].discoveryKey,discoveryKey);
+  assert.equal(snapshot.selected.stage,'execution');assert.equal(snapshot.selected.lineage.discovery.key,discoveryKey);
+  const back=catalog.snapshot(discoveryKey);assert.deepEqual(back.selected.lineage.executions.map(x=>x.key),[executionKey]);
+});
+
 test('dashboard actions go through the matching original runner and cannot stop a supplied PID or unrelated endpoint', async () => {
   let stopped=0;const panel=await servePanel({},()=>({runId:'owned'}),{stop:()=>{stopped++;return 'stopped';}});
   const run={runId:'owned',controlUrl:panel.url,canStop:true};

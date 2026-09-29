@@ -5,7 +5,7 @@ import { nodeExecutable, CLI_NAME, PACKAGE_ROOT } from '../core/paths.ts';
 import { defaultPaths, shortRef, type WorkerKind } from '../core/config.ts';
 import { readLock } from '../core/lock.ts';
 import { activeRuns } from '../core/runs.ts';
-import { defaultRoot, ensureDashboard, healthy } from '../monitor/hub.ts';
+import { dashboardBuilt, defaultRoot, ensureDashboard, healthy } from '../monitor/hub.ts';
 import { nativePaths, nativeSelection, modelCatalog } from '../workers/zcode/native.ts';
 import { readAgySelection } from '../workers/agy/adapter.ts';
 import { readCodexSelection, EFFORTS as CODEX_EFFORTS } from '../workers/codex/adapter.ts';
@@ -70,8 +70,9 @@ export async function doctor(cwd = process.cwd()) {
 async function hubState() {
   const root = defaultRoot();
   let record: any = null; try { record = readJson(path.join(root, 'hub.json')); } catch {}
-  const running = await healthy(record);
-  return { ok: running || !record || !isAlive(record?.pid), running, root,
+  const running = await healthy(record), built = dashboardBuilt();
+  return { ok: (running || !record || !isAlive(record?.pid)) && built, running, root, page: built ? 'built' : 'missing',
+    ...(built ? {} : { hint: `Build the dashboard page: bun run build:web (in ${PACKAGE_ROOT})` }),
     ...(record?.pid ? { pid: record.pid, pidAlive: isAlive(record.pid) } : {}),
     ...(record?.startedAt ? { startedAt: new Date(record.startedAt).toISOString().replace(/\.\d{3}Z$/, 'Z') } : {}),
     ...(!running && record && isAlive(record.pid) ? { error: 'The hub process is alive but not answering its health check.' } : {}) };

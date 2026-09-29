@@ -6,6 +6,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { asset, CLI_ENTRY } from '../core/paths.ts';
+import { shortRef } from '../core/config.ts';
 import { openTelemetry, clean } from './monitor-core.ts';
 import { writeFileAtomic } from '../core/fsutil.ts';
 import { Readable } from 'node:stream';
@@ -13,7 +14,24 @@ import { pipeline } from 'node:stream/promises';
 import { readEventContent, readEventPreviews } from './event-content.ts';
 import { loadRunForExport, sessionExportEntries, sessionLogZipFilename, zipStream } from './session-export.ts';
 
-const HTML = fs.readFileSync(asset('web', 'dashboard.html'));
+// The page is the Vite build of web/ (`bun run build:web`): index.html plus content-hashed files under assets/.
+const DIST = asset('web', 'dashboard');
+export const dashboardBuilt = (dir = DIST) => fs.existsSync(path.join(dir, 'index.html'));
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const MISSING_PAGE = '<!doctype html><meta charset="utf-8"><title>Agent Dispatch</title><body style="font:14px system-ui;margin:3rem;color:#ccc;background:#15161a">'
+  + '<h1 style="font-size:18px">The dashboard has not been built</h1><p>Run <code>bun run build:web</code> in the agent-dispatch folder, then reload. Run data is still served.</p>';
+/** Only index.html and flat files under assets/ with a known type; anything else is not part of the page. */
+const pageFile = (dir, route) => route === '' ? path.join(dir, 'index.html')
+  : /^assets\/[\w-]+(\.[\w-]+)*$/.test(route) && Object.hasOwn(TYPES, path.extname(route)) ? path.join(dir, route) : null;
+const pageCache = new Map<string, Buffer | null>();
+const readPage = (file, dev) => {
+  if (!dev && pageCache.has(file)) return pageCache.get(file);
+  let data: Buffer | null = null;
+  try { data = fs.readFileSync(file); } catch { /* not built */ }
+  if (!dev && data) pageCache.set(file, data);
+  return data;
+};
 export const defaultRoot = () => path.resolve(process.env.ZCODE_DASHBOARD_ROOT ?? path.join(os.homedir(), '.zcode', 'monitor'));
 const read = file => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 const save = (file, data) => writeFileAtomic(file, JSON.stringify(data, null, 2) + '\n');
@@ -23,6 +41,20 @@ export const isAlive = pid => { if (!Number.isInteger(pid) || pid < 1) return fa
 const terminal = new Set(['blocked', 'cancelled', 'worker_failed', 'missing_report', 'ready_for_review', 'complete', 'changes_required']);
 const keyFor = dir => crypto.createHash('sha256').update(process.platform === 'win32' ? dir.toLowerCase() : dir).digest('hex').slice(0, 24);
 const labelOf = config => ({ agy: 'AGY', codex: 'Codex' })[config.workerKind] ?? 'ZCode';
+const keyOf = dir => { try { return keyFor(fs.realpathSync(dir)); } catch { return keyFor(path.resolve(dir)); } };
+// The brief's first heading names the task ("# Run 4: Simple mode …"). The saved assignment never changes once written.
+const tasks = new Map<string, string | null>();
+const taskOf = runDir => {
+  if (tasks.has(runDir)) return tasks.get(runDir);
+  let text;
+  try { const fd = fs.openSync(path.join(runDir, 'assignment.md'), 'r'); try { const buffer = Buffer.alloc(4096); text = buffer.toString('utf8', 0, fs.readSync(fd, buffer, 0, 4096, 0)); } finally { fs.closeSync(fd); } }
+  catch { return null; }
+  const task = clean(/^#{1,3}[ 	]+(.+?)[ 	#]*$/m.exec(text)?.[1]?.replace(/[*_`]/g, ''), 160) || null;
+  tasks.set(runDir, task);
+  return task;
+};
+// What an active run is doing right now: its latest recorded event.
+const activityOf = events => { const last = events?.at(-1); return last ? { kind: last.kind, label: last.label, status: last.status, startedAt: last.startedAt, endedAt: last.endedAt ?? null } : null; };
 
 export function registerRun(runDir, root = defaultRoot()) {
   const resolved = fs.realpathSync(runDir), config = read(path.join(resolved, 'config.json'));
@@ -57,7 +89,8 @@ export function readRun(entry, { now = Date.now(), alive = isAlive, telemetry = 
     : !active && !state.workerExited ? 'monitor_offline' : state.status;
   const events = observed?.trajectory?.events ?? (state.tools ?? []).map(tool => ({ id: `part:${tool.id}`, kind: 'tool', label: clean(tool.name),
     status: tool.status, startedAt: tool.startedAt, endedAt: tool.endedAt, source: 'saved monitor', recordId: tool.id })).reverse();
-  return { key: entry.key, runId: state.runId, title: names.slice(-2).join(' / '), project: config.project,
+  return { key: entry.key, runId: state.runId, ref: shortRef(state.runId), title: names.slice(-2).join(' / '), task: taskOf(entry.runDir), project: config.project,
+    discoveryKey: config.discoveryRunDir ? keyOf(config.discoveryRunDir) : null,
     workerKind:config.workerKind ?? 'zcode',workerLabel:labelOf(config),stage:config.stage ?? null,
     active, status, phase: stale ? 'monitor_offline' : state.phase, startedAt: state.startedAt, endedAt: state.endedAt,
     updatedAt: state.updatedAt, model: observed?.model ?? state.model ?? config.expectedModel,
@@ -105,9 +138,14 @@ export function createCatalog(root, options: any = {}) {
     snapshot(selectedKey) {
       const all = [...records.values()], active = all.filter(x => x.active).sort((a, b) => b.startedAt - a.startedAt);
       const selected = records.get(selectedKey) ? this.hydrate(selectedKey) : active[0] ?? null;
-      const item = ({ key, title, runId, model, status, phase, startedAt, endedAt, workerLabel, stage }) => ({ key, title, runId, model, status, phase, startedAt, endedAt, workerLabel, stage });
-      const recent = all.filter(x => !x.active).sort((a, b) => (b.endedAt ?? b.updatedAt ?? 0) - (a.endedAt ?? a.updatedAt ?? 0)).slice(0, 12).map(item);
-      return { at: Date.now(), runs: active.map(item), recent, selected: publicRun(selected) };
+      const item = run => run && ({ key: run.key, ref: run.ref, title: run.title, task: run.task, project: run.project, runId: run.runId, model: run.model, status: run.status,
+        phase: run.phase, active: run.active, startedAt: run.startedAt, endedAt: run.endedAt, lastActivityAt: run.lastActivityAt, workerLabel: run.workerLabel,
+        stage: run.stage, discoveryKey: run.discoveryKey, alert: Boolean(run.alert), activity: run.active ? activityOf(run.trajectory?.events) : null });
+      const recent = all.filter(x => !x.active).sort((a, b) => (b.endedAt ?? b.updatedAt ?? 0) - (a.endedAt ?? a.updatedAt ?? 0)).slice(0, 30).map(item);
+      // The two-stage flow: the discovery run an execution came from, and the executions a discovery led to.
+      const lineage = selected && { discovery: item(records.get(selected.discoveryKey)) ?? null,
+        executions: all.filter(x => x.discoveryKey === selected.key).sort((a, b) => a.startedAt - b.startedAt).map(item) };
+      return { at: Date.now(), runs: active.map(item), recent, selected: selected && { ...publicRun(selected), lineage } };
     }
   };
 }
@@ -127,7 +165,8 @@ export async function proxyAction(run, action) {
   return { message: clean(result.message, 500) };
 }
 
-export async function serveDashboard({ root = defaultRoot(), port = 0, token = crypto.randomBytes(24).toString('hex'), pollMs = 2000, catalog = createCatalog(root), action = proxyAction } = {}) {
+/** `dev` re-reads the built page on every request, so a rebuild shows on reload. */
+export async function serveDashboard({ root = defaultRoot(), port = 0, token = crypto.randomBytes(24).toString('hex'), pollMs = 2000, catalog = createCatalog(root), action = proxyAction, dev = false, pageDir = DIST } = {}) {
   if (!/^[a-f0-9]{48}$/.test(token)) throw new Error('Invalid dashboard token.');
   const clients = new Set<any>(), downloads = new Set<any>();
   catalog.refresh();
@@ -136,13 +175,22 @@ export async function serveDashboard({ root = defaultRoot(), port = 0, token = c
     const host = `127.0.0.1:${actualPort}`, origin = `http://${host}`, base = `/${token}/`;
     res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer'); res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
     const send = (code, data) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
     if (req.headers.host !== host || req.headers.origin && req.headers.origin !== origin) return send(403, { error: 'Invalid origin.' });
     const url = new URL(req.url!, origin);
     if (!url.pathname.startsWith(base)) return send(404, { error: 'Unknown dashboard.' });
     const route = url.pathname.slice(base.length);
-    if (req.method === 'GET' && route === '') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(HTML); }
+    const file = req.method === 'GET' || req.method === 'HEAD' ? pageFile(pageDir, route) : null;
+    if (file) {
+      const data = readPage(file, dev);
+      if (!data && route === '') { res.writeHead(503, { 'Content-Type': TYPES['.html'] }); return res.end(MISSING_PAGE); }
+      if (!data) return send(404, { error: 'Unknown dashboard file.' });
+      // Built assets are content-hashed, so the browser may keep them.
+      if (route !== '' && !dev) res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+      res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)], 'Content-Length': data.length });
+      return res.end(req.method === 'HEAD' ? undefined : data);
+    }
     if (req.method === 'GET' && route === 'health') return send(200, { service: 'zcode-dashboard', version: 4, pid: process.pid });
     if (req.method === 'GET' && route === 'snapshot') return send(200, catalog.snapshot(url.searchParams.get('run')));
     if (req.method === 'GET' && /^runs\/[a-f0-9]{24}\/content$/.test(route)) {

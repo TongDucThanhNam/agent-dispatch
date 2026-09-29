@@ -95,7 +95,8 @@ src/workers/    zcode (native invocation, desktop handoff), agy, codex adapters
 src/monitor/    dashboard hub, telemetry, trajectory, session-log export
 src/idle/       IDLE watch/record-night harness
 src/skills/     thin-skill installer
-assets/guide/   agent-facing guide text · assets/templates/ brief templates · assets/node/ Node loaders · assets/web/ dashboard pages
+assets/guide/   agent-facing guide text · assets/templates/ brief templates · assets/node/ Node loaders · assets/web/ panel page
+web/            dashboard UI (React, Vite, shadcn/ui, TanStack Query/Table/Virtual); builds to assets/web/dashboard/
 ```
 
 To change behavior, edit `src/` (logic) or `assets/guide/` (what agents read). Then:
@@ -105,6 +106,28 @@ bun run check
 ```
 
 Tests are hermetic: fake workers, temporary projects and a private hub registry. They never call a model.
+
+## Dashboard UI
+
+The hub serves the Vite build of `web/` from `assets/web/dashboard/`. The build is not committed; `bun run check` produces it, or:
+
+```bash
+bun run build:web
+```
+
+Without a build the hub still serves run data and shows a page naming this command; `doctor` reports it as `hub.page: "missing"`. A running hub keeps the page it loaded until `agent-dispatch hub restart`.
+
+To work on the UI against real runs without touching the shared hub:
+
+```bash
+bun run dev:dashboard
+```
+
+```bash
+bun run dev:web
+```
+
+`dev:dashboard` is a read-only hub on `127.0.0.1:4780` (Stop and Retry are refused; it rereads the build on every request). `dev:web` is Vite with hot reload on `127.0.0.1:5173`, proxying `/api/` to that hub.
 
 ## Skills
 

@@ -305,7 +305,7 @@ function Activity({ event, previews }: { event: TrajectoryEvent; previews: Previ
       <div className="flex min-w-0 items-baseline gap-2 text-[12.5px] leading-5">
         <span className="max-w-full shrink-0 truncate font-medium">{eventName(event)}</span>
         {preview === undefined
-          ? <span className="h-2.5 w-24 shrink animate-pulse self-center rounded-sm bg-muted" aria-hidden />
+          ? <span className="h-2.5 w-24 shrink animate-pulse self-center rounded-sm bg-foreground/10" aria-hidden />
           : preview.text && <span className="truncate text-muted-foreground">{preview.text}</span>}
       </div>
       <div className="truncate text-[11px] leading-4 text-muted-foreground/80 tabular">

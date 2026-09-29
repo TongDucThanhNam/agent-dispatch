@@ -154,16 +154,26 @@ test('the built page is served from its folder under a strict script CSP; nothin
 });
 
 test('snapshot items carry the brief title, short ref and the discovery → execution lineage', async () => {
-  const root=temp(),discovery=fixture(root,'disc',{status:'ready_for_review',workerExited:true,endedAt:Date.now()}),execution=fixture(root,'exec');
+  const root=temp(),now=Date.now(),discovery=fixture(root,'disc',{status:'ready_for_review',workerExited:true,endedAt:now}),
+    execution=fixture(root,'exec',{startedAt:now+1,status:'ready_for_review',workerExited:true,endedAt:now+2}),revision=fixture(root,'revision',{startedAt:now+3});
   fs.writeFileSync(path.join(discovery.runDir,'assignment.md'),'Intro line\n\n## Discovery: **Simple** mode `v2` ##\n\nBody');
+  save(path.join(discovery.runDir,'config.json'),{...discovery.config,stage:'discovery'});
   save(path.join(execution.runDir,'config.json'),{...execution.config,stage:'execution',discoveryRunDir:discovery.runDir});
-  const discoveryKey=registerRun(discovery.runDir,root),executionKey=registerRun(execution.runDir,root),catalog=createCatalog(root,{telemetry:false});
+  save(path.join(revision.runDir,'config.json'),{...revision.config,stage:'execution',discoveryRunDir:discovery.runDir});
+  const discoveryKey=registerRun(discovery.runDir,root),revisionKey=registerRun(revision.runDir,root),executionKey=registerRun(execution.runDir,root),catalog=createCatalog(root,{telemetry:false});
   catalog.refresh();
   const snapshot=catalog.snapshot(executionKey),recent=snapshot.recent.find(x=>x.key===discoveryKey);
   assert.equal(recent.task,'Discovery: Simple mode v2');assert.equal(typeof recent.ref,'string');assert.ok(recent.ref.length>0);
   assert.equal(snapshot.runs[0].task,null);assert.equal(snapshot.runs[0].discoveryKey,discoveryKey);
   assert.equal(snapshot.selected.stage,'execution');assert.equal(snapshot.selected.lineage.discovery.key,discoveryKey);
-  const back=catalog.snapshot(discoveryKey);assert.deepEqual(back.selected.lineage.executions.map(x=>x.key),[executionKey]);
+  for (const key of [discoveryKey,executionKey,revisionKey]) {
+    const lineage=catalog.snapshot(key).selected.lineage;
+    assert.equal(lineage.discovery.key,discoveryKey);
+    assert.deepEqual(lineage.executions.map(x=>x.key),[executionKey,revisionKey]);
+    assert.deepEqual(lineage.executions.map(x=>x.active),[false,true]);
+    assert.ok(lineage.executions.every(x=>x.controlUrl===undefined&&x.contentSource===undefined&&x.trajectory===undefined));
+  }
+  catalog.close();
 });
 
 test('dashboard actions go through the matching original runner and cannot stop a supplied PID or unrelated endpoint', async () => {

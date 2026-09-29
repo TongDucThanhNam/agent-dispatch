@@ -13,6 +13,7 @@ import { registerRun, ensureDashboard } from '../monitor/hub.ts';
 import { verifyNative } from '../workers/zcode/native.ts';
 import { readAgySelection } from '../workers/agy/adapter.ts';
 import { readCodexSelection } from '../workers/codex/adapter.ts';
+import { readClaudeRuntime } from '../workers/claude/adapter.ts';
 import { CliError, labelled, labelledAsync } from '../protocol/errors.ts';
 
 // Pins the default Codex selection once so resume and the model/provider check use the same values.
@@ -70,6 +71,10 @@ export async function prepare(raw: any, { checkLock = true } = {}) {
   } else if (config.workerKind === 'codex') {
     if (!fs.existsSync(config.codexExe)) throw new CliError('WORKER_UNAVAILABLE', 'Codex executable is missing.');
     resolveCodexSelection(config);
+  } else if (config.workerKind === 'claude') {
+    if (!fs.existsSync(config.claudeExe)) throw new CliError('WORKER_UNAVAILABLE', 'Claude executable is missing.', 'Install Claude Code or set claudeExe in --config.');
+    const runtime = await readClaudeRuntime(config.claudeExe);
+    if (!runtime.ok) throw new CliError('WORKER_UNAVAILABLE', runtime.error!, 'Claude Code 2.1.259 or later is required; update the CLI.');
   }
   return { config, assignment, discovery };
 }

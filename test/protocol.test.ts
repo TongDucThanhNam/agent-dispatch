@@ -140,7 +140,7 @@ describe('skills install', () => {
       const zcode = result.actions.find(a => a.target === 'claude' && a.skill === SKILL_NAMES.zcode);
       expect(zcode).toMatchObject({ was: 'legacy', action: 'replaced' });
       expect(zcode.backup).toContain(path.join('skill-backups', '2026-01-02-agent-dispatch-cli'));
-      expect(result.actions.filter(a => a.action === 'skipped')).toHaveLength(5);
+      expect(result.actions.filter(a => a.action === 'skipped')).toHaveLength(Object.keys(SKILL_NAMES).length * 2 - 1);
       expect(skillState(legacy)).toBe('legacy');
     } finally { rmTree(base); }
   });
@@ -164,8 +164,23 @@ describe('skills install', () => {
       expect(again.actions.find(a => a.target === 'claude' && a.skill === SKILL_NAMES.zcode)?.action).toBe('unchanged');
 
       const created = installSkills({ roots: map, force: true, now, includeMissing: true, target: 'codex' });
-      expect(created.actions.map(a => a.action)).toEqual(['created', 'created', 'created']);
+      expect(created.actions.map(a => a.action)).toEqual(Object.keys(SKILL_NAMES).map(() => 'created'));
       expect(skillState(path.join(map.codex, SKILL_NAMES.agy))).toBe('thin');
+    } finally { rmTree(base); }
+  });
+
+  test('worker-scoped installation creates only the requested delegate and preserves unrelated skills', () => {
+    const { base, map, legacy } = roots();
+    try {
+      const result = installSkills({ roots: map, force: true, worker: 'claude', includeMissing: true });
+      expect(result.actions.map(a => [a.target, a.skill, a.action])).toEqual([
+        ['claude', 'delegate-to-claude', 'created'], ['codex', 'delegate-to-claude', 'created'],
+      ]);
+      expect(skillState(legacy)).toBe('legacy');
+      expect(fs.existsSync(path.join(map.codex, SKILL_NAMES.codex))).toBe(false);
+      expect(skillState(path.join(map.codex, SKILL_NAMES.claude))).toBe('thin');
+      const again = installSkills({ roots: map, force: true, worker: 'claude', includeMissing: true });
+      expect(again.actions.every(a => a.action === 'unchanged')).toBe(true);
     } finally { rmTree(base); }
   });
 });

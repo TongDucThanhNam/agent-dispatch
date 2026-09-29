@@ -5,7 +5,7 @@ import { LABELS, type WorkerKind } from '../core/config.ts';
 import { activeRuns } from '../core/runs.ts';
 import { CliError, labelled } from '../protocol/errors.ts';
 
-export const SKILL_NAMES: Record<WorkerKind, string> = { zcode: 'delegate-to-zcode', agy: 'delegate-to-agy', codex: 'delegate-to-codex' };
+export const SKILL_NAMES: Record<WorkerKind, string> = { zcode: 'delegate-to-zcode', agy: 'delegate-to-agy', codex: 'delegate-to-codex', claude: 'delegate-to-claude' };
 export const SKILL_ROOTS = (): Record<'claude' | 'codex', string> => ({ claude: home('.claude', 'skills'), codex: home('.codex', 'skills') });
 export const THIN_MARKER = '<!-- agent-dispatch:thin-skill v1 -->';
 
@@ -13,6 +13,7 @@ const DEFAULT_DESCRIPTIONS: Record<WorkerKind, string> = {
   zcode: 'Use when explicitly invoked for ZCode to investigate, the orchestrator to plan from that evidence, and ZCode to implement, test, self-review, and report results, either through the native CLI or an explicitly requested IDLE queue task.',
   agy: 'Use when explicitly invoked for AGY to investigate, the orchestrator to plan from that evidence, and AGY to implement, test, self-review, and return a final verified report with a local progress panel.',
   codex: 'Use when explicitly invoked for a separate Codex CLI worker to investigate, the orchestrator to plan from that evidence, and the worker to implement, test, self-review, and return a final verified report with a local progress panel.',
+  claude: 'Use when the user requests delegation to a separate Claude Code CLI worker for discovery, implementation, testing, self-review, and a final verified report through agent-dispatch.',
 };
 
 /** `thin` (points at the CLI), `legacy` (bundled scripts), `other`, or `missing`. */
@@ -54,17 +55,17 @@ const openaiYaml = (worker: WorkerKind) => `interface:
   short_description: "Direct ${LABELS[worker]} work through the ${CLI_NAME} CLI"
   default_prompt: "Use $${SKILL_NAMES[worker]} to have the worker investigate first, plan from its evidence with acceptance tests, then delegate implementation, testing, self-review and fixes to the worker for one final verified report."
 policy:
-  allow_implicit_invocation: false
+  allow_implicit_invocation: ${worker === 'claude' ? 'true' : 'false'}
 `;
 
-export interface InstallOptions { target?: 'claude' | 'codex' | 'all'; dryRun?: boolean; includeMissing?: boolean; force?: boolean; now?: Date; roots?: Record<'claude' | 'codex', string> }
+export interface InstallOptions { target?: 'claude' | 'codex' | 'all'; worker?: WorkerKind; dryRun?: boolean; includeMissing?: boolean; force?: boolean; now?: Date; roots?: Record<'claude' | 'codex', string> }
 
 /**
  * Replaces installed delegate skills with thin pointers to the CLI. The old
  * directory is moved (never deleted) to `<root>/../skill-backups/<date>-agent-dispatch-cli/`.
  * By default only skills that already exist are replaced.
  */
-export function installSkills({ target = 'all', dryRun = false, includeMissing = false, force = false, now = new Date(), roots: rootMap = SKILL_ROOTS() }: InstallOptions = {}) {
+export function installSkills({ target = 'all', worker: selectedWorker, dryRun = false, includeMissing = false, force = false, now = new Date(), roots: rootMap = SKILL_ROOTS() }: InstallOptions = {}) {
   if (!dryRun && !force) {
     const active = activeRuns();
     if (active.length) throw new CliError('RUN_ACTIVE', 'Runs are active; installed skills are not replaced while an orchestrator may be following them.',
@@ -75,6 +76,7 @@ export function installSkills({ target = 'all', dryRun = false, includeMissing =
   const actions: any[] = [];
   for (const [targetName, root] of roots) {
     for (const worker of Object.keys(SKILL_NAMES) as WorkerKind[]) {
+      if (selectedWorker && selectedWorker !== worker) continue;
       const dir = path.join(root, SKILL_NAMES[worker]), state = skillState(dir);
       const entry: any = { target: targetName, skill: SKILL_NAMES[worker], was: state };
       if (state === 'missing' && !includeMissing) { actions.push({ ...entry, action: 'skipped' }); continue; }

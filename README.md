@@ -1,6 +1,6 @@
 # agent-dispatch
 
-A CLI and a stable JSON protocol that let an orchestrating agent (Claude Code, Codex or any shell-capable agent) delegate work to a worker agent (**ZCode**, **AGY** or **Codex CLI**) in two stages: **discovery → planning → execution**.
+A CLI and a stable JSON protocol that let an orchestrating agent (Claude Code, Codex or any shell-capable agent) delegate work to a worker agent (**ZCode**, **AGY**, **Codex CLI** or **Claude Code**) in two stages: **discovery → planning → execution**.
 
 The behavior lives in this tool. The installed `delegate-to-*` skills are ~1 KB pointers to it, so fixes and changes land here, not in the skills.
 
@@ -92,6 +92,7 @@ src/cli/        main.ts (command table, envelopes), args.ts (strict parser), mai
 src/protocol/   output.ts (envelopes), errors.ts (error codes → exit codes)
 src/core/       config, launch (check/launch/resume), supervisor (runner), status, runs (ref resolution), lock, worktree guard
 src/workers/    zcode (native invocation, desktop handoff), agy, codex adapters
+                claude (native print-mode stream, pinned model/session, local telemetry)
 src/monitor/    dashboard hub, telemetry, trajectory, session-log export
 src/idle/       IDLE watch/record-night harness
 src/skills/     thin-skill installer
@@ -158,4 +159,13 @@ The eager-JavaScript measurement includes the entry and its preloaded shared chu
 agent-dispatch skills install --dry-run
 ```
 
-This replaces `~/.claude/skills/delegate-to-{zcode,agy,codex}` and `~/.codex/skills/…` with thin pointers. The old directories are moved, never deleted, to `~/.claude/skill-backups/<date>-agent-dispatch-cli/`. Each skill's trigger description and the Codex `agents/openai.yaml` settings are kept. The previous implementation is archived on the `archive/contract-dispatcher` branch.
+This replaces `~/.claude/skills/delegate-to-{zcode,agy,codex,claude}` and `~/.codex/skills/…` with thin pointers. The old directories are moved, never deleted, to `~/.claude/skill-backups/<date>-agent-dispatch-cli/`. Each skill's trigger description and the Codex `agents/openai.yaml` settings are kept. The previous implementation is archived on the `archive/contract-dispatcher` branch.
+
+To add only the Claude delegate without changing existing skills:
+
+```bash
+agent-dispatch skills install --worker claude --include-missing
+agent-dispatch guide claude
+```
+
+The Claude worker requires the native Claude Code CLI ≥ 2.1.259. It uses existing Claude authentication/settings, resolves model aliases at startup and pins the actual model for resumes. Use `--worker claude` in the same discovery/execution flow shown above. `--model` and `--effort` override the worker selection; backend routing remains in Claude's own configuration. No Agent SDK dependency is required.

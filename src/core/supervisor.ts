@@ -11,6 +11,7 @@ import { openTelemetry, assess, classifyError, clean } from '../monitor/monitor-
 import { verifyNative, buildNativeInvocation } from '../workers/zcode/native.ts';
 import { startAgy } from '../workers/agy/adapter.ts';
 import { startCodex } from '../workers/codex/adapter.ts';
+import { startClaude } from '../workers/claude/adapter.ts';
 
 export const TERMINAL = new Set(['blocked', 'cancelled', 'worker_failed', 'missing_report', 'ready_for_review', 'complete', 'changes_required']);
 const AI_SDK_WARNING = /^(?:AI SDK Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false\.\r?\n)+/;
@@ -166,6 +167,8 @@ export async function supervise(config: any, deps: SuperviseDeps = {}) {
     } else if (!deps.spawnWorker && config.workerKind === 'codex') {
       if (!fs.existsSync(config.codexExe)) throw new Error('Codex executable is missing.');
       if (!config.codexModel || !config.codexProvider) throw new Error('Resolve the Codex model and provider before starting this run.');
+    } else if (!deps.spawnWorker && config.workerKind === 'claude') {
+      if (!fs.existsSync(config.claudeExe)) throw new Error('Claude executable is missing.');
     } else if (!deps.spawnWorker) {
       verifyNative(config);
     }
@@ -195,10 +198,11 @@ export async function supervise(config: any, deps: SuperviseDeps = {}) {
     invocation = !config.workerKind || config.workerKind === 'zcode' ? buildNativeInvocation(config, prompt) : null;
     try {
       if (deps.spawnWorker) child = deps.spawnWorker({ config, prompt, out, err });
-      else if (config.workerKind === 'agy' || config.workerKind === 'codex') {
-        const start: any = config.workerKind === 'agy' ? startAgy : startCodex;
+      else if (config.workerKind === 'agy' || config.workerKind === 'codex' || config.workerKind === 'claude') {
+        const start: any = { agy: startAgy, codex: startCodex, claude: startClaude }[config.workerKind];
         bridge = start(config, { prompt, startedAt: state.startedAt, stderrFd: err,
           onSession: (id: string) => { state.sessionId = id; persist(); },
+          onModel: (model: string) => { state.expectedModel = model; saveJson(path.join(config.runDir, 'config.json'), config); persist(); },
           onFailure: (error: any) => { void stop({ kind: 'stream_error', message: clean(error.message, 500) }).catch(() => {}); },
           // The worker reported its terminal result but did not exit. Closing it completes the run; it is not a stop.
           onLingering: () => {
@@ -215,7 +219,8 @@ export async function supervise(config: any, deps: SuperviseDeps = {}) {
     state.status = 'running'; event(`Worker launched${child.pid ? ` (PID ${child.pid})` : ''}.`); persist();
     saveJson(path.join(config.runDir, 'startup.json'), { url: panel.url, runDir: config.runDir, runnerPid: process.pid, workerPid: state.workerPid,
       workerKind: config.workerKind ?? 'zcode',
-      modelVerification: ({ agy: 'explicit AGY --model selection', codex: 'explicit Codex -m selection; verified against the session turn context' } as any)[config.workerKind] ?? 'pending runtime evidence' });
+      modelVerification: ({ agy: 'explicit AGY --model selection', codex: 'explicit Codex -m selection; verified against the session turn context',
+        claude: 'awaiting Claude system/init resolution; main-session model is then pinned and verified' } as any)[config.workerKind] ?? 'pending runtime evidence' });
     const exited = new Promise<any>(resolve => { child.once('error', (error: any) => resolve({ code: null, error })); child.once('close', (code: any, signal: any) => resolve({ code, signal })); });
     const tick = async () => {
       if (polling || state.workerExited || stopPending) return;

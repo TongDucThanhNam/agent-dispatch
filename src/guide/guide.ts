@@ -5,7 +5,7 @@ import { CliError } from '../protocol/errors.ts';
 
 export const ORCHESTRATORS = ['claude', 'codex', 'generic'] as const;
 export type Orchestrator = typeof ORCHESTRATORS[number];
-export const TOPICS = ['zcode', 'agy', 'codex', 'idle', 'monitor', 'desktop', 'errors'] as const;
+export const TOPICS = ['zcode', 'agy', 'codex', 'claude', 'idle', 'monitor', 'desktop', 'errors'] as const;
 export const TEMPLATES = ['discovery', 'assignment', 'review'] as const;
 
 /** Which agent is running the CLI; decides how waiting for a run is described. */

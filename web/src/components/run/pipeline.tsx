@@ -16,7 +16,7 @@ export function Pipeline({ run, now, onSelect }: { run: Run; now: number; onSele
   if (!run.stage) return null;
   const self: RunItem = { ...run, alert: Boolean(run.alert), activity: null };
   const discovery = run.stage === 'discovery' ? self : run.lineage?.discovery ?? null;
-  const executions = run.stage === 'execution' ? [self] : run.lineage?.executions ?? [];
+  const executions = run.lineage?.executions?.length ? run.lineage.executions : run.stage === 'execution' ? [self] : [];
   const steps: Step[] = [
     { key: 'discovery', stage: 'discovery', run: discovery },
     ...(executions.length ? executions.map((item, index) => ({ key: item.key, stage: 'execution' as const, run: item, index: executions.length > 1 ? index + 1 : undefined }))

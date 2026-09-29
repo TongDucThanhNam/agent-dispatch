@@ -10,6 +10,7 @@ import { openTelemetry, clean } from './monitor-core.ts';
 import { writeFileAtomic } from '../core/fsutil.ts';
 import { Readable } from 'node:stream';
 import { snapshotUpdate } from '../../shared/dashboard-protocol.ts';
+import { resolveRunLineage } from '../../shared/run-lineage.ts';
 import type { Snapshot } from '../../web/src/lib/types.ts';
 import { readEventContent, readEventPreviews, readToolCallId } from './event-content.ts';
 import { readToolImage } from './event-images.ts';
@@ -33,7 +34,7 @@ const readReport = file => { try { return fs.statSync(file).size <= 65_536 ? cle
 export const isAlive = pid => { if (!Number.isInteger(pid) || pid < 1) return false; try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const terminal = new Set(['blocked', 'cancelled', 'worker_failed', 'missing_report', 'ready_for_review', 'complete', 'changes_required']);
 const keyFor = dir => crypto.createHash('sha256').update(process.platform === 'win32' ? dir.toLowerCase() : dir).digest('hex').slice(0, 24);
-const labelOf = config => ({ agy: 'AGY', codex: 'Codex' })[config.workerKind] ?? 'ZCode';
+const labelOf = config => ({ agy: 'AGY', codex: 'Codex', claude: 'Claude Code' })[config.workerKind] ?? 'ZCode';
 const keyOf = dir => { try { return keyFor(fs.realpathSync(dir)); } catch { return keyFor(path.resolve(dir)); } };
 // The brief's first heading names the task ("# Run 4: Simple mode …"). The saved assignment never changes once written.
 const tasks = new Map<string, string | null>();
@@ -173,9 +174,7 @@ export function createCatalog(root, options: any = {}) {
         phase: run.phase, active: run.active, startedAt: run.startedAt, endedAt: run.endedAt, lastActivityAt: run.lastActivityAt, workerLabel: run.workerLabel,
         stage: run.stage, discoveryKey: run.discoveryKey, alert: Boolean(run.alert), activity: run.active ? activityOf(run.trajectory?.events) : null });
       const recent = all.filter(x => !x.active).sort((a, b) => (b.endedAt ?? b.updatedAt ?? 0) - (a.endedAt ?? a.updatedAt ?? 0)).slice(0, 30).map(item);
-      // The two-stage flow: the discovery run an execution came from, and the executions a discovery led to.
-      const lineage = selected && { discovery: item(records.get(selected.discoveryKey)) ?? null,
-        executions: all.filter(x => x.discoveryKey === selected.key).sort((a, b) => a.startedAt - b.startedAt).map(item) };
+      const lineage = selected && resolveRunLineage(selected, all.map(run => item(run.key === selected.key ? selected : run)));
       return { at: Date.now(), runs: active.map(item), recent, selected: selected && { ...publicRun(selected), lineage } };
     }
   };

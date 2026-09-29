@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readJson, isAlive, sleep, spawnCaptured } from '../core/fsutil.ts';
 import { nodeExecutable, CLI_NAME, PACKAGE_ROOT } from '../core/paths.ts';
-import { defaultPaths, shortRef, type WorkerKind } from '../core/config.ts';
+import { defaultPaths, shortRef, WORKERS, type WorkerKind } from '../core/config.ts';
 import { readLock } from '../core/lock.ts';
 import { activeRuns } from '../core/runs.ts';
 import { dashboardBuilt, defaultRoot, ensureDashboard, healthy } from '../monitor/hub.ts';
 import { nativePaths, nativeSelection, modelCatalog } from '../workers/zcode/native.ts';
 import { readAgySelection } from '../workers/agy/adapter.ts';
 import { readCodexSelection, EFFORTS as CODEX_EFFORTS } from '../workers/codex/adapter.ts';
+import { readClaudeSelection, readClaudeRuntime, CLAUDE_EFFORTS, CLAUDE_ALIASES } from '../workers/claude/adapter.ts';
 import { CliError, labelled, labelledAsync } from '../protocol/errors.ts';
 import { SKILL_NAMES, SKILL_ROOTS, skillState } from '../skills/install.ts';
 
@@ -25,6 +26,14 @@ export async function models(worker: WorkerKind) {
     const selected = await labelledAsync('MODEL_UNAVAILABLE', () => readAgySelection(exe));
     return { worker, selected: selected.model, selectedEffort: selected.effort, efforts: ['low', 'medium', 'high'],
       note: 'Launch pins this selection unless --model is given.' };
+  }
+  if (worker === 'claude') {
+    const paths = defaultPaths();
+    if (!fs.existsSync(paths.claudeExe)) throw new CliError('WORKER_UNAVAILABLE', 'Claude executable is missing.', 'Install the native Claude Code CLI.');
+    const selection = readClaudeSelection(paths.claudeHome);
+    return { worker, selected: selection.model ? `claude/${selection.model}` : null, selectedEffort: selection.effort,
+      efforts: CLAUDE_EFFORTS, models: CLAUDE_ALIASES,
+      note: 'Advisory user/project/local settings; managed/account defaults are resolved by Claude. Launch pins the actual model from system/init for resumes. Effort support is model-dependent.' };
   }
   const selection = readCodexSelection(defaultPaths().codexHome);
   return { worker, selected: selection.model ? `${selection.provider}/${selection.model}` : null, selectedEffort: selection.effort, efforts: CODEX_EFFORTS,
@@ -52,6 +61,8 @@ export async function doctor(cwd = process.cwd()) {
   const codexSelection = readCodexSelection(paths.codexHome);
   checks.codex = { ok: fs.existsSync(paths.codexExe) && !!codexSelection.model, exe: paths.codexExe,
     selected: codexSelection.model ? `${codexSelection.provider}/${codexSelection.model}` : null, effort: codexSelection.effort };
+  checks.claude = fs.existsSync(paths.claudeExe) ? { ...await readClaudeRuntime(paths.claudeExe), exe: paths.claudeExe }
+    : { ok: false, exe: paths.claudeExe, error: 'Claude executable is missing.' };
   checks.idle = { ok: fs.existsSync(paths.adapter), adapter: paths.adapter };
   checks.hub = await hubState();
   const skills: Record<string, string> = {};
@@ -63,7 +74,7 @@ export async function doctor(cwd = process.cwd()) {
   const lock = readLock(cwd);
   if (lock) checks.lock = { ok: false, project: cwd, runId: lock.runId ?? null, runnerAlive: isAlive(lock.runnerPid),
     hint: lock.runId ? `${CLI_NAME} status ${shortRef(lock.runId)}` : 'Inspect the lock file before launching.' };
-  const workers = ['zcode', 'agy', 'codex'].filter(name => checks[name].ok);
+  const workers = WORKERS.filter(name => checks[name].ok);
   return { ok: checks.node.ok && workers.length > 0, workers, checks };
 }
 

@@ -17,6 +17,7 @@ import type { EventFocus, Run } from '@/lib/types';
 import { usePreviewStore } from '@/lib/use-previews';
 import { useNow, useSnapshot, type Connection } from '@/lib/use-snapshot';
 import { cn } from '@/lib/utils';
+import { selectedSnapshotRun } from '../../shared/run-lineage';
 
 const EventDetail = lazy(() => import('@/components/run/event-detail').then(module => ({ default: module.EventDetail })));
 const RunSummary = lazy(() => import('@/components/run/run-summary').then(module => ({ default: module.RunSummary })));
@@ -29,7 +30,7 @@ export function App() {
   // The run list stays docked from 1280px; below that it opens as a sheet so the run itself gets the width.
   const docked = useMediaQuery('(min-width: 1280px)');
   const wide = useMediaQuery('(min-width: 1024px)');
-  const run = snapshot?.selected ?? null;
+  const run = useMemo(() => selectedSnapshotRun(snapshot), [snapshot]);
 
   // The hub falls back to the newest active run; pin whatever it shows so reloads keep it.
   useEffect(() => {
@@ -45,7 +46,7 @@ export function App() {
   const showSidebar = useCallback(() => setSidebarOpen(true), []);
   const openSidebar = docked ? undefined : showSidebar;
   const switching = pending && Boolean(runKey) && run?.key !== runKey;
-  const sidebar = <Sidebar snapshot={snapshot} selected={run?.key ?? runKey} onSelect={onSelectRun} connection={connection} />;
+  const sidebar = <Sidebar snapshot={snapshot} selected={runKey ?? run?.key ?? null} onSelect={onSelectRun} connection={connection} />;
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">

@@ -31,7 +31,7 @@ const C = CLI_NAME;
 const LAUNCH_VALUES = ['worker', 'stage', 'brief', 'project', 'from', 'model', 'effort', 'provider', 'mode', 'notify', 'thread', 'callback-model', 'config'];
 const LAUNCH_ALIASES = { 'prompt-file': 'brief', 'from-discovery': 'from' };
 const REF_ALIASES = { 'run-dir': 'ref' };
-const LAUNCH_USAGE = '--worker zcode|agy|codex --stage discovery|execution --brief FILE [--from REF] [--project DIR] [--model ID] [--effort LEVEL] [--provider ID] [--mode yolo|plan] [--notify auto|codex|none] [--thread UUID]';
+const LAUNCH_USAGE = '--worker zcode|agy|codex|claude --stage discovery|execution --brief FILE [--from REF] [--project DIR] [--model ID] [--effort LEVEL] [--provider ID] [--mode yolo|plan] [--notify auto|codex|none] [--thread UUID]';
 
 // Run commands accept the ref positionally or through the historical --run-dir option.
 function refOf(opts: Opts, args: string[]) {
@@ -142,7 +142,7 @@ const harness = (error: any) => error instanceof HarnessError
 const IDLE_SUBS = 'watch|record-night|doctor|models|list|availability|submit|status|ticket';
 
 export const COMMANDS: Record<string, Command> = {
-  guide: { usage: 'guide [zcode|agy|codex|idle|monitor|desktop|errors] [--orchestrator claude|codex|generic]', summary: 'Print the operating guide (read once per task).',
+  guide: { usage: 'guide [zcode|agy|codex|claude|idle|monitor|desktop|errors] [--orchestrator claude|codex|generic]', summary: 'Print the operating guide (read once per task).',
     values: ['orchestrator'], args: [0, 1],
     run: (o, a) => ({ text: guideText(a[0], oneOf(o, 'orchestrator', ORCHESTRATORS)) }) },
   template: { usage: `template ${TEMPLATES.join('|')}`, summary: 'Print a brief template.', args: [1, 1],
@@ -199,7 +199,7 @@ export const COMMANDS: Record<string, Command> = {
       const hub = await labelledAsync('HUB_UNAVAILABLE', () => ensureDashboard());
       return { data: { url: hub.url + (key ? '#run=' + key : ''), ...(runDir ? { ref: shortRef(path.basename(runDir)) } : {}) } };
     } },
-  models: { usage: 'models [--worker zcode|agy|codex]', summary: 'Available or selected models for a worker.', values: ['worker'],
+  models: { usage: 'models [--worker zcode|agy|codex|claude]', summary: 'Available or selected models for a worker.', values: ['worker'],
     run: async o => ({ data: await models(oneOf(o, 'worker', WORKERS) ?? 'zcode') }) },
   doctor: { usage: 'doctor', summary: 'Check runtimes, workers, hub, installed skills and the current lock.',
     run: async () => ({ data: await doctor() }) },
@@ -211,11 +211,11 @@ export const COMMANDS: Record<string, Command> = {
       if (a[0] === 'restart') return { data: await hubRestart() };
       throw usageError(`Unknown hub action "${a[0]}".`, COMMANDS.hub);
     } },
-  skills: { usage: 'skills install [--target claude|codex|all] [--dry-run] [--include-missing] [--force]', summary: 'Replace installed delegate skills with thin CLI pointers (old copies are moved to skill-backups).',
-    values: ['target'], flags: ['dry-run', 'include-missing', 'force'], args: [1, 1],
+  skills: { usage: 'skills install [--target claude|codex|all] [--worker zcode|agy|codex|claude] [--dry-run] [--include-missing] [--force]', summary: 'Replace installed delegate skills with thin CLI pointers (old copies are moved to skill-backups).',
+    values: ['target', 'worker'], flags: ['dry-run', 'include-missing', 'force'], args: [1, 1],
     run: (o, a) => {
       if (a[0] !== 'install') throw usageError(`Unknown skills action "${a[0]}".`, COMMANDS.skills);
-      return { data: installSkills({ target: oneOf(o, 'target', ['claude', 'codex', 'all'] as const) ?? 'all', dryRun: !!o['dry-run'], includeMissing: !!o['include-missing'], force: !!o.force }) };
+      return { data: installSkills({ target: oneOf(o, 'target', ['claude', 'codex', 'all'] as const) ?? 'all', worker: oneOf(o, 'worker', WORKERS), dryRun: !!o['dry-run'], includeMissing: !!o['include-missing'], force: !!o.force }) };
     } },
   version: { usage: 'version', summary: 'CLI and protocol version.', run: () => ({ data: { version: VERSION, protocol: PROTOCOL_VERSION } }) },
   review: { usage: 'review <ref> --verdict accepted|changes_required --report-file FILE', summary: 'Legacy optional review note.', hidden: true,
@@ -258,7 +258,7 @@ async function runIdle(argv: string[], pretty: boolean) {
 
 function helpText() {
   const visible = Object.entries(COMMANDS).filter(([, c]) => !c.hidden);
-  return [`${C} ${VERSION} (protocol v${PROTOCOL_VERSION}): delegate discovery and execution runs to ZCode, AGY or Codex workers.`,
+  return [`${C} ${VERSION} (protocol v${PROTOCOL_VERSION}): delegate discovery and execution runs to ZCode, AGY, Codex or Claude Code workers.`,
     `Agents: start with "${C} guide <worker>". Output: one JSON line {v,ok,cmd,data|error,next?}; guide/template/report print raw text.`,
     'Refs: 8-hex run suffix, run ID, "last", or a run directory. --pretty indents JSON.', '',
     ...visible.map(([, c]) => `  ${c.usage.split(' ')[0].padEnd(10)}${c.summary}`), '',

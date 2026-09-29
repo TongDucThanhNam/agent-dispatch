@@ -7,21 +7,22 @@ export type Connection = 'connecting' | 'live' | 'stale' | 'offline';
 
 /** Full state on connect, patches thereafter; heartbeats never rerender the data view. */
 export function useSnapshot(run: string | null) {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [data, setData] = useState<{ run: string | null; snapshot: Snapshot } | null>(null);
   const [connection, setConnection] = useState<Connection>('connecting');
   const receivedAt = useRef(0);
-  const [pending, setPending] = useState(true);
 
   useEffect(() => {
     let source: EventSource | null = null, current: Snapshot | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined, disposed = false;
-    setPending(true); setConnection('connecting'); receivedAt.current = 0;
-    const alive = () => { receivedAt.current = Date.now(); setConnection('live'); };
+    setConnection('connecting'); receivedAt.current = 0;
+    const alive = () => { if (!disposed) { receivedAt.current = Date.now(); setConnection('live'); } };
     const publish = (next: Snapshot) => {
+      if (disposed) return;
       current = next; alive();
-      startTransition(() => { setSnapshot(next); setPending(false); });
+      startTransition(() => setData({ run, snapshot: next }));
     };
     const recover = () => {
+      if (disposed) return;
       source?.close(); source = null; setConnection('offline');
       clearTimeout(retry); retry = setTimeout(connect, 1000);
     };
@@ -39,7 +40,7 @@ export function useSnapshot(run: string | null) {
         } catch { recover(); }
       });
       source.addEventListener('heartbeat', alive);
-      source.onerror = () => setConnection(source?.readyState === EventSource.CLOSED ? 'offline' : 'connecting');
+      source.onerror = () => { if (!disposed) setConnection(source?.readyState === EventSource.CLOSED ? 'offline' : 'connecting'); };
     };
     const visibility = () => {
       if (document.hidden) { source?.close(); source = null; clearTimeout(retry); }
@@ -52,7 +53,8 @@ export function useSnapshot(run: string | null) {
     return () => { disposed = true; clearTimeout(retry); clearInterval(timer); source?.close(); document.removeEventListener('visibilitychange', visibility); };
   }, [run]);
 
-  return { snapshot, connection, receivedAt: receivedAt.current, pending };
+  // Mark a new selection pending during render, before effects can mistake the previous run for a hub fallback.
+  return { snapshot: data?.snapshot ?? null, connection, receivedAt: receivedAt.current, pending: !data || data.run !== run };
 }
 
 /** Clocks sleep in background tabs and catch up as soon as the page is visible. */

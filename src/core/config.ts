@@ -6,15 +6,16 @@ import { RECORD_DIR, home } from './paths.ts';
 import { CliError } from '../protocol/errors.ts';
 import { clean } from '../monitor/monitor-core.ts';
 import { nativePaths, nativeSelection } from '../workers/zcode/native.ts';
+import { CLAUDE_EFFORTS } from '../workers/claude/adapter.ts';
 
-export type WorkerKind = 'zcode' | 'agy' | 'codex';
-export const WORKERS: WorkerKind[] = ['zcode', 'agy', 'codex'];
-export const LABELS: Record<WorkerKind, string> = { zcode: 'ZCode', agy: 'AGY', codex: 'Codex' };
+export type WorkerKind = 'zcode' | 'agy' | 'codex' | 'claude';
+export const WORKERS: WorkerKind[] = ['zcode', 'agy', 'codex', 'claude'];
+export const LABELS: Record<WorkerKind, string> = { zcode: 'ZCode', agy: 'AGY', codex: 'Codex', claude: 'Claude Code' };
 export const workerLabel = (config: { workerKind?: string }) => LABELS[config.workerKind as WorkerKind] ?? 'ZCode';
 
 export const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 export const validSession = (config: { workerKind?: string }, id: unknown) =>
-  config.workerKind === 'agy' || config.workerKind === 'codex' ? UUID.test(String(id ?? '')) : /^sess_[A-Za-z0-9_-]+$/.test(String(id ?? ''));
+  config.workerKind === 'agy' || config.workerKind === 'codex' || config.workerKind === 'claude' ? UUID.test(String(id ?? '')) : /^sess_[A-Za-z0-9_-]+$/.test(String(id ?? ''));
 
 /** Short, stable handle for a run: the random suffix of generated run IDs, otherwise the run ID itself. */
 export const shortRef = (runId: string) => /^run-\d+-([0-9a-f]{8})$/.exec(runId)?.[1] ?? runId;
@@ -32,6 +33,8 @@ export const defaultPaths = () => ({
   adapter: home('AppData/Local/Programs/ZCodeCLI/zc.mjs'),
   codexExe: home('AppData/Local/Programs/OpenAI/Codex/bin/codex.exe'),
   agyExe: home('AppData/Local/agy/bin/agy.exe'),
+  claudeExe: (typeof Bun !== 'undefined' ? Bun.which('claude') : null) ?? home('.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude'),
+  claudeHome: process.env.CLAUDE_CONFIG_DIR ?? home('.claude'),
   codexHome: process.env.CODEX_HOME ?? home('.codex'),
   cliConfig: home('.zcode/cli/config.json'),
   dbPath: home('.zcode/cli/db/db.sqlite'),
@@ -46,7 +49,7 @@ const invalid = (message: string, hint?: string) => new CliError('INVALID_CONFIG
 export function validateConfig(raw: any): any {
   if (!raw || typeof raw !== 'object') throw invalid('A run configuration object is required.');
   const workerKind = raw.workerKind ?? 'zcode';
-  if (!WORKERS.includes(workerKind)) throw invalid('Invalid worker kind.', 'Use --worker zcode, agy or codex.');
+  if (!WORKERS.includes(workerKind)) throw invalid('Invalid worker kind.', 'Use --worker zcode, agy, codex or claude.');
   let project: string;
   try { project = fs.realpathSync(path.resolve(raw.project ?? '.')); }
   catch { throw invalid('The project directory does not exist.', 'Pass an existing directory with --project.'); }
@@ -57,7 +60,7 @@ export function validateConfig(raw: any): any {
   if (raw.notify !== false && !UUID.test(raw.threadId ?? ''))
     throw invalid('Use the originating Codex task UUID for threadId.', 'Pass --notify none when no Codex task should be called back (for example under Claude Code), or --thread <Codex task UUID>.');
   if (raw.resumeSessionId && !validSession({ workerKind }, raw.resumeSessionId))
-    throw invalid(`Invalid ${{ agy: 'AGY conversation', codex: 'Codex thread' }[workerKind] ?? 'ZCode session'} ID.`);
+    throw invalid(`Invalid ${{ agy: 'AGY conversation', codex: 'Codex thread', claude: 'Claude session' }[workerKind] ?? 'ZCode session'} ID.`);
   const bounded = (name: string, fallback: number, min: number, max: number) => {
     const value = raw[name] ?? fallback;
     if (!Number.isInteger(value) || value < min || value > max) throw invalid(`Invalid ${name}.`);
@@ -73,14 +76,16 @@ export function validateConfig(raw: any): any {
     promptFile: path.resolve(raw.promptFile ?? path.join(runDir, 'assignment.md')),
     threadId: raw.threadId ?? null, notify: raw.notify !== false, callbackModel: raw.callbackModel ?? null,
     expectedModel: workerKind === 'agy' ? raw.agyModel ?? raw.model ?? raw.expectedModel ?? 'pending-selection'
-      : workerKind === 'codex' ? raw.codexModel ?? raw.model ?? raw.expectedModel ?? 'pending-selection' : raw.expectedModel ?? 'GLM-5.3-Flash',
+      : workerKind === 'codex' ? raw.codexModel ?? raw.model ?? raw.expectedModel ?? 'pending-selection'
+      : workerKind === 'claude' ? raw.claudeResolvedModel ?? raw.claudeModel ?? raw.model ?? raw.expectedModel ?? 'pending-selection' : raw.expectedModel ?? 'GLM-5.3-Flash',
     expectedProvider: workerKind === 'agy' ? 'agy' : workerKind === 'codex' ? raw.codexProvider ?? raw.provider ?? raw.expectedProvider ?? 'pending-selection'
-      : raw.expectedProvider ?? 'account:zai-individual-coding-plan',
+      : workerKind === 'claude' ? 'claude' : raw.expectedProvider ?? 'account:zai-individual-coding-plan',
     ...selection,
     adapter: path.resolve(raw.adapter ?? defaults.adapter),
     codexExe: path.resolve(raw.codexExe ?? defaults.codexExe),
     cliConfig: path.resolve(raw.cliConfig ?? defaults.cliConfig),
     dbPath: workerKind === 'agy' ? path.join(runDir, 'agy-events.sqlite') : workerKind === 'codex' ? path.join(runDir, 'codex-events.sqlite')
+      : workerKind === 'claude' ? path.join(runDir, 'claude-events.sqlite')
       : path.resolve(raw.dbPath ?? defaults.dbPath),
     ...(raw.nodeExe ? { nodeExe: path.resolve(raw.nodeExe) } : {}),
     ...(workerKind === 'agy' ? { agyExe: path.resolve(raw.agyExe ?? defaults.agyExe),
@@ -90,6 +95,9 @@ export function validateConfig(raw: any): any {
       codexModel: raw.codexModel ?? raw.model ?? (raw.expectedModel !== 'pending-selection' ? raw.expectedModel : null) ?? null,
       codexEffort: raw.codexEffort ?? raw.effort ?? null,
       codexProvider: raw.codexProvider ?? raw.provider ?? (raw.expectedProvider !== 'pending-selection' ? raw.expectedProvider : null) ?? null } : {}),
+    ...(workerKind === 'claude' ? { claudeExe: path.resolve(raw.claudeExe ?? defaults.claudeExe), claudeHome: path.resolve(raw.claudeHome ?? defaults.claudeHome),
+      claudeModel: raw.claudeModel ?? raw.model ?? null, claudeResolvedModel: raw.claudeResolvedModel ?? null,
+      claudeEffort: raw.claudeEffort ?? raw.effort ?? null } : {}),
     resumeSessionId: raw.resumeSessionId ?? null, mode: raw.mode ?? 'yolo',
     stage: raw.stage ?? 'execution', discoveryRunDir: raw.discoveryRunDir ? path.resolve(raw.discoveryRunDir) : null, discoveryDrift: driftOf(raw.discoveryDrift),
     pollMs: bounded('pollMs', 5000, 100, 60_000), quietMs: bounded('quietMs', 180_000, 100, 86_400_000),
@@ -117,9 +125,20 @@ export function validateConfig(raw: any): any {
     if (config.codexModel != null && !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,100}$/.test(config.codexModel)) throw invalid('Invalid Codex model.');
     if (config.codexProvider != null && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/.test(config.codexProvider)) throw invalid('Invalid Codex provider.');
   }
-  for (const field of ['callbackModel', 'expectedModel', 'expectedProvider'])
+  if (workerKind === 'claude') {
+    if (!['yolo', 'plan'].includes(config.mode)) throw invalid('Claude supports yolo or plan in this launcher.');
+    if (config.claudeEffort && !CLAUDE_EFFORTS.includes(config.claudeEffort)) throw invalid('Invalid Claude effort.', 'Use low, medium, high, xhigh or max (model-dependent).');
+    for (const field of ['claudeModel', 'claudeResolvedModel', 'expectedModel'])
+      if (config[field] != null && !/^[A-Za-z0-9][A-Za-z0-9:._/-]{0,199}(?:\[1m\])?$/.test(config[field])) throw invalid('Invalid Claude model.');
+    if (config.claudeModel?.replace(/\[1m\]$/, '') === 'opusplan') throw invalid('Claude opusplan switches models; use a single model for a pinned dispatch run.');
+    if (raw.provider != null && raw.provider !== 'claude') throw invalid('Claude provider routing comes from its own settings and environment.', 'Configure Claude Code normally; do not pass --provider.');
+    if (process.platform === 'win32' && /\.(?:cmd|bat|ps1)$/i.test(config.claudeExe)) throw invalid('Use the native claude.exe, not a shell wrapper.');
+  }
+  for (const field of ['callbackModel', 'expectedModel', 'expectedProvider']) {
+    if (workerKind === 'claude' && field === 'expectedModel') continue;
     if (config[field] !== null && !/^[A-Za-z0-9][A-Za-z0-9:._/-]{0,100}$/.test(config[field])) throw invalid(`Invalid ${field}.`);
+  }
   return config;
 }
 
-export const configuredEffort = (config: any) => config?.zcodeEffort ?? config?.agyEffort ?? config?.codexEffort ?? null;
+export const configuredEffort = (config: any) => config?.zcodeEffort ?? config?.agyEffort ?? config?.codexEffort ?? config?.claudeEffort ?? null;

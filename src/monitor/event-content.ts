@@ -6,7 +6,7 @@ const directory = value => { const resolved = path.resolve(value); return proces
 const displayText = value => String(value ?? '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
 const EVENT_ID = /^(part|message|request):[A-Za-z0-9_.:-]{1,240}$/;
 const FIELDS = ['input', 'output', 'error', 'text', 'reasoning'];
-const label = workerLabel => ['AGY', 'Codex'].includes(workerLabel) ? workerLabel : 'ZCode';
+const label = workerLabel => ['AGY', 'Codex', 'Claude Code'].includes(workerLabel) ? workerLabel : 'ZCode';
 
 function openSession(dbPath, { sessionId, project, startedAt }) {
   if (!Number.isFinite(startedAt) || !sessionId || !project) throw new Error('The run session is not available yet.');

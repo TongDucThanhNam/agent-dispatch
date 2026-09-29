@@ -6,41 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { LiveDot, StatusIcon } from '@/components/status-badge';
 import { ago, duration, projectName } from '@/lib/format';
+import { finishedAt, groupRecent, matchesRun, type ProjectGroup as Project } from '@/lib/run-groups';
 import { kindMeta, runState, stageLabel, stateLabel, tone, toneText, workerTitle } from '@/lib/status';
 import { useTheme } from '@/lib/theme';
 import type { RunItem, Snapshot } from '@/lib/types';
 import type { Connection } from '@/lib/use-snapshot';
 import { useNow } from '@/lib/use-snapshot';
 import { cn } from '@/lib/utils';
-
-interface Task { lead: RunItem; children: RunItem[]; latest: number }
-interface Project { project: string; tasks: Task[]; latest: number; count: number }
-
-const finishedAt = (run: RunItem) => run.endedAt ?? run.lastActivityAt ?? run.startedAt;
-
-/** Recent runs by project; executions sit under the discovery run they came from. */
-function groupRecent(recent: RunItem[]): Project[] {
-  const byKey = new Map(recent.map(run => [run.key, run]));
-  const tasks = new Map<string, Task>();
-  for (const run of recent) if (!(run.discoveryKey && byKey.has(run.discoveryKey))) tasks.set(run.key, { lead: run, children: [], latest: finishedAt(run) });
-  for (const run of recent) {
-    const task = run.discoveryKey ? tasks.get(run.discoveryKey) : undefined;
-    if (!task) continue;
-    task.children.push(run);
-    task.latest = Math.max(task.latest, finishedAt(run));
-  }
-  const projects = new Map<string, Project>();
-  for (const task of tasks.values()) {
-    task.children.sort((a, b) => a.startedAt - b.startedAt);
-    const group = projects.get(task.lead.project) ?? { project: task.lead.project, tasks: [], latest: 0, count: 0 };
-    group.tasks.push(task);
-    group.latest = Math.max(group.latest, task.latest);
-    group.count += 1 + task.children.length;
-    projects.set(task.lead.project, group);
-  }
-  for (const group of projects.values()) group.tasks.sort((a, b) => b.latest - a.latest);
-  return [...projects.values()].sort((a, b) => b.latest - a.latest);
-}
 
 const CONNECTION: Record<Connection, { label: string; className: string; hint: string }> = {
   live: { label: 'Live', className: 'text-success', hint: 'Receiving updates every 2 seconds.' },
@@ -101,19 +73,19 @@ function RunningCard({ run, active, onSelect, now }: { run: RunItem; active: boo
 }
 
 function RecentRow({ run, active, onSelect, now, nested, label }: { run: RunItem; active: boolean; onSelect: () => void; now: number; nested?: boolean; label?: string }) {
-  const ms = run.endedAt ? run.endedAt - run.startedAt : null;
+  const state = runState(run), ms = run.active ? now - run.startedAt : run.endedAt ? run.endedAt - run.startedAt : null;
   return (
-    <button type="button" onClick={onSelect} data-active={active} title={`${run.task ?? run.title}\n${workerTitle(run)} · ${stateLabel(run.status)} · ${run.runId}`}
+    <button type="button" onClick={onSelect} data-active={active} title={`${run.task ?? run.title}\n${workerTitle(run)} · ${stateLabel(state)} · ${run.runId}`}
       className={cn('group flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/60 data-[active=true]:bg-accent',
         nested && 'py-1')}>
-      <StatusIcon state={run.status} className="mt-0.5" />
+      <StatusIcon state={state} className="mt-0.5" />
       <div className="min-w-0 flex-1">
         <div className={cn('truncate text-[12.5px] leading-snug', active ? 'font-medium text-foreground' : 'text-foreground/85')}>{label ?? run.task ?? run.title}</div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <span className="truncate">{nested ? run.workerLabel : workerTitle(run)}</span>
           <span className="shrink-0 font-mono text-[10.5px] opacity-75">{run.ref}</span>
           {ms != null && <span className="shrink-0 whitespace-nowrap tabular opacity-75">· {duration(ms)}</span>}
-          <span className="ml-auto shrink-0 tabular">{ago(finishedAt(run), now)}</span>
+          <span className="ml-auto shrink-0 tabular">{run.active ? 'now' : ago(finishedAt(run), now)}</span>
         </div>
       </div>
     </button>
@@ -136,8 +108,8 @@ function ProjectGroup({ group, selected, onSelect, now }: { group: Project; sele
             <RecentRow run={task.lead} active={task.lead.key === selected} onSelect={() => onSelect(task.lead.key)} now={now} />
             {task.children.length > 0 && (
               <div className="ml-[15px] space-y-0.5 border-l pl-1.5">
-                {task.children.map(child => (
-                  <RecentRow key={child.key} run={child} nested label={stageLabel(child.stage) ?? child.task ?? child.title}
+                {task.children.map((child, index) => (
+                  <RecentRow key={child.key} run={child} nested label={child.stage === 'execution' && task.children.length > 1 ? `Execution ${index + 1}` : stageLabel(child.stage) ?? child.task ?? child.title}
                     active={child.key === selected} onSelect={() => onSelect(child.key)} now={now} />
                 ))}
               </div>
@@ -156,8 +128,8 @@ export function Sidebar({ snapshot, selected, onSelect, connection }: {
   const now = useNow(snapshot?.runs.length ? 1000 : 60_000);
   const { theme, toggle } = useTheme();
   const q = filter.trim().toLowerCase();
-  const running = useMemo(() => (snapshot?.runs ?? []).filter(run => matches(run, q)), [snapshot?.runs, q]);
-  const groups = useMemo(() => groupRecent((snapshot?.recent ?? []).filter(run => matches(run, q))), [snapshot?.recent, q]);
+  const running = useMemo(() => (snapshot?.runs ?? []).filter(run => matchesRun(run, q)), [snapshot?.runs, q]);
+  const groups = useMemo(() => groupRecent(snapshot, q), [snapshot, q]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
@@ -210,6 +182,3 @@ function SectionLabel({ label, count, className }: { label: string; count: numbe
     </div>
   );
 }
-
-const matches = (run: RunItem, q: string) => !q
-  || [run.task, run.project, run.ref, run.runId, run.status, run.phase, run.workerLabel, run.stage, run.model].join(' ').toLowerCase().includes(q);

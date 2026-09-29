@@ -90,6 +90,18 @@ export function readEventContent(dbPath, { sessionId, project, startedAt, eventI
   } finally { db.close(); }
 }
 
+/** The worker's call ID of a tool event in this run; Codex tool output images are looked up by it. */
+export function readToolCallId(dbPath, { sessionId, project, startedAt, eventId }) {
+  if (typeof eventId !== 'string' || !EVENT_ID.test(eventId) || !eventId.startsWith('part:')) throw new Error('Invalid event ID.');
+  const { db, since } = openSession(dbPath, { sessionId, project, startedAt });
+  try {
+    const row = db.prepare(`SELECT json_extract(data,'$.callID') callId FROM part WHERE id=? AND session_id=? AND time_created>=?
+      AND json_valid(data) AND json_extract(data,'$.type')='tool'`).get(eventId.slice(5), sessionId, since);
+    if (!row) throw new Error('Event is outside this run or no longer available.');
+    return typeof row.callId === 'string' ? row.callId : null;
+  } finally { db.close(); }
+}
+
 const oneLine = (value, size) => clean(displayText(value).replace(/\s+/g, ' ').trim(), size);
 const INPUT_KEYS = ['command', 'CommandLine', 'cmd', 'file_path', 'filePath', 'AbsolutePath', 'TargetFile', 'path', 'pattern', 'Query',
   'query', 'url', 'Url', 'description', 'subject', 'prompt', 'skill', 'name'];

@@ -42,3 +42,7 @@ export async function downloadSessionLog(run: string) {
   link.click();
   link.remove();
 }
+
+/** An image a tool returned to the model; 404 when the worker's session log did not keep it. */
+export const imageUrl = (run: string, event: string, index: number) =>
+  `${BASE}runs/${run}/image?event=${encodeURIComponent(event)}&index=${index}`;

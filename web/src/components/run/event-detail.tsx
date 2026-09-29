@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, ArrowLeft, ArrowUpLeft, ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, CircleX, Crosshair, Image, Loader2,
+  AlertCircle, ArrowLeft, ArrowUpLeft, ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, CircleX, Crosshair, ExternalLink, Image, Loader2,
   Maximize2, Minimize2, RefreshCw, Repeat,
 } from 'lucide-react';
 import { CodeCard, CodeView, CopyButton, Markdown, PatchFileView, UnifiedDiff } from '@/components/code';
 import { KindChip } from '@/components/kind-chip';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { fetchContent } from '@/lib/api';
+import { fetchContent, imageUrl } from '@/lib/api';
 import { duration, full, human, num, stamp } from '@/lib/format';
 import { langFromPath, langOf, shellLang, type Lang } from '@/lib/highlight';
 import { sameCalls } from '@/lib/insights';
@@ -307,7 +308,8 @@ function ToolContent({ run, event, sections }: { run: Run; event: TrajectoryEven
     <>
       {error && <ErrorCallout loaded={error} command={command} project={run.project} />}
       {input && <CallView loaded={input} args={args} labels={labels} project={run.project} />}
-      {output && <ResultView loaded={output} labels={labels} soleCommand={soleCommand} failed={isFailed(event)} />}
+      {output && <ResultView loaded={output} labels={labels} soleCommand={soleCommand} failed={isFailed(event)}
+        imageSrc={index => imageUrl(run.key, event.id, index)} />}
     </>
   );
 }
@@ -517,10 +519,13 @@ function TodoList({ todos }: { todos: unknown[] }) {
   );
 }
 
-function ResultView({ loaded, labels, soleCommand, failed }: { loaded: Loaded; labels: Map<string, string>; soleCommand?: string; failed: boolean }) {
+function ResultView({ loaded, labels, soleCommand, failed, imageSrc }: {
+  loaded: Loaded; labels: Map<string, string>; soleCommand?: string; failed: boolean; imageSrc: (index: number) => string;
+}) {
   const [raw, setRaw] = useState(false);
   const output = useMemo(() => parseToolOutput(loaded.text), [loaded.text]);
   const execs = output.parts.filter(p => p.type === 'exec').length;
+  const images = output.parts.flatMap(p => (p.type === 'image' ? [p.index] : []));
   return (
     <Part title="Result"
       aside={<>
@@ -542,17 +547,101 @@ function ResultView({ loaded, labels, soleCommand, failed }: { loaded: Loaded; l
           if (part.type === 'exec') return <ExecBlock key={i} exec={part.exec} command={part.exec.label ? labels.get(part.exec.label) : execs === 1 ? soleCommand : undefined} />;
           if (part.type === 'json') return <CodeCard key={i} text={part.text} lang="json" title="JSON" maxLines={30} />;
           if (part.type === 'error') return <CodeCard key={i} text={part.text} title="Script error" tone="danger" maxLines={20} />;
+          // Consecutive images share one gallery, placed where the first of them appears.
           if (part.type === 'image') {
-            return (
-              <p key={i} className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-[11.5px] text-muted-foreground">
-                <Image className="size-3.5" aria-hidden />Returned an image to the model (not kept in the session record).
-              </p>
-            );
+            if (output.parts[i - 1]?.type === 'image') return null;
+            const group: number[] = [];
+            for (let j = i; output.parts[j]?.type === 'image'; j++) group.push((output.parts[j] as { index: number }).index);
+            return <ImageGallery key={i} indexes={group} all={images} src={imageSrc} />;
           }
           return <OutputBlock key={i} text={part.text} command={soleCommand} title="Output" tone={failed && output.parts.length === 1 ? 'danger' : undefined} />;
         })}
       {loaded.more}
     </Part>
+  );
+}
+
+// ── Images ───────────────────────────────────────────────────────────────────────────────────────
+
+/** Images a tool returned to the model, as the model saw them. Codex keeps them in its session log; other workers do not. */
+function ImageGallery({ indexes, all, src }: { indexes: number[]; all: number[]; src: (index: number) => string }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const [missing, setMissing] = useState(false);
+  if (missing) {
+    return (
+      <p className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-[11.5px] text-muted-foreground">
+        <Image className="size-3.5" aria-hidden />
+        Returned {indexes.length > 1 ? `${indexes.length} images` : 'an image'} to the model; this run's session log did not keep {indexes.length > 1 ? 'them' : 'it'}.
+      </p>
+    );
+  }
+  const single = indexes.length === 1;
+  const label = (index: number) => (all.length > 1 ? `Image ${index + 1} of ${all.length}` : 'Image');
+  return (
+    <>
+      <div className={cn('grid gap-2', !single && 'grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]')}>
+        {indexes.map(index => (
+          <ImageThumb key={index} src={src(index)} label={label(index)} single={single} onOpen={() => setOpen(index)} onMissing={() => setMissing(true)} />
+        ))}
+      </div>
+      <ImageViewer open={open} all={all} src={src} label={label} onOpen={setOpen} />
+    </>
+  );
+}
+
+function ImageThumb({ src, label, single, onOpen, onMissing }: { src: string; label: string; single: boolean; onOpen: () => void; onMissing: () => void }) {
+  const [size, setSize] = useState<string | null>(null);
+  return (
+    <button type="button" onClick={onOpen} title="Open full size"
+      className="group/image relative flex min-h-24 items-center justify-center overflow-hidden rounded-lg border bg-muted/40 outline-none transition-colors hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/40">
+      <img src={src} alt={label} loading="lazy" decoding="async" onError={onMissing}
+        onLoad={e => setSize(`${e.currentTarget.naturalWidth}×${e.currentTarget.naturalHeight}`)}
+        className={cn('block w-full object-contain', single ? 'max-h-96' : 'aspect-[4/3]')} />
+      <span className="pointer-events-none absolute bottom-1.5 left-1.5 rounded bg-background/85 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+        {label}{size && ` · ${size}`}
+      </span>
+      <Maximize2 className="pointer-events-none absolute top-1.5 right-1.5 size-6 rounded bg-background/85 p-1 text-muted-foreground opacity-0 transition-opacity group-hover/image:opacity-100" aria-hidden />
+    </button>
+  );
+}
+
+/** Full-size view; ←/→ step through the call's images. */
+function ImageViewer({ open, all, src, label, onOpen }: {
+  open: number | null; all: number[]; src: (index: number) => string; label: (index: number) => string; onOpen: (index: number | null) => void;
+}) {
+  const [size, setSize] = useState<string | null>(null);
+  useEffect(() => setSize(null), [open]);
+  const at = open == null ? -1 : all.indexOf(open);
+  const go = (step: number) => { if (at >= 0) onOpen(all[(at + step + all.length) % all.length]); };
+  return (
+    <Dialog open={open != null} onOpenChange={value => { if (!value) onOpen(null); }}>
+      {/* Centred by inset + auto margins: a box placed at left 50% could only grow to half the screen. */}
+      <DialogContent className="inset-0 m-auto flex h-fit max-h-[94vh] w-fit max-w-[96vw] translate-x-0 translate-y-0 flex-col gap-2 p-2 sm:max-w-[96vw]"
+        onKeyDown={e => { if (all.length > 1 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); go(e.key === 'ArrowRight' ? 1 : -1); } }}>
+        <div className="flex min-h-7 items-center gap-2 pr-9 pl-1">
+          <DialogTitle className="flex items-center gap-1.5 text-xs font-medium"><Image className="size-3.5" aria-hidden />{open != null && label(open)}</DialogTitle>
+          {size && <span className="font-mono text-[11px] text-muted-foreground">{size}</span>}
+          <DialogDescription className="sr-only">The image as the tool returned it to the model.</DialogDescription>
+          <span className="ml-auto flex items-center gap-0.5">
+            {all.length > 1 && (
+              <>
+                <Button variant="ghost" size="icon-sm" aria-label="Previous image" onClick={() => go(-1)}><ChevronLeft /></Button>
+                <Button variant="ghost" size="icon-sm" aria-label="Next image" onClick={() => go(1)}><ChevronRight /></Button>
+              </>
+            )}
+            {open != null && (
+              <Button variant="ghost" size="sm" asChild>
+                <a href={src(open)} target="_blank" rel="noreferrer">Open in tab<ExternalLink data-icon="inline-end" /></a>
+              </Button>
+            )}
+          </span>
+        </div>
+        {open != null && (
+          <img key={open} src={src(open)} alt={label(open)} onLoad={e => setSize(`${e.currentTarget.naturalWidth}×${e.currentTarget.naturalHeight}`)}
+            className="mx-auto block max-h-[calc(94vh-3.25rem)] max-w-full rounded-md object-contain" />
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

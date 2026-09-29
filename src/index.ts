@@ -14,7 +14,8 @@ export { prepare, check, launch, resume, linkDiscovery, resolveCodexSelection } 
 export { resolveRun, listRuns, describeRun, activeRuns } from './core/runs.ts';
 export { registerRun, readRun, createCatalog, serveDashboard, proxyAction, ensureDashboard, healthy, defaultRoot } from './monitor/hub.ts';
 export { clean, classifyError, openTelemetry, assess } from './monitor/monitor-core.ts';
-export { readEventContent, readEventPreviews } from './monitor/event-content.ts';
+export { readEventContent, readEventPreviews, readToolCallId } from './monitor/event-content.ts';
+export { readToolImage } from './monitor/event-images.ts';
 export { readTrajectory } from './monitor/trajectory.ts';
 export { sessionExportEntries, loadRunForExport, exportRunToFile, zipStream } from './monitor/session-export.ts';
 export { modelCatalog, nativeSelection, buildNativeInvocation, verifyNative } from './workers/zcode/native.ts';

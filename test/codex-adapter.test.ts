@@ -249,3 +249,31 @@ test('mixed dashboard labels Codex runs and serves their content',async t=>{
   try{const content=await(await fetch(panel.url+'runs/'+key+'/content?event=request%3Acodex-req-4')).json();assert.equal(content.sections.find(x=>x.field==='text').title,'Codex response');}
   finally{await panel.close();}
 });
+
+test('dashboard serves images a Codex tool returned to the model from the run rollout copy, and nothing else',async t=>{
+  const config=fixture(t),startedAt=Date.now(),t0=startedAt+10,png=Buffer.from('89504e470d0a1a0a0000000d49484452','hex');
+  const dataUrl=type=>`data:${type};base64,`+png.toString('base64'),base=rollout(config.project,t0),end=base.length-1;
+  const records=[...base.slice(0,end),
+    {timestamp:ts(t0+1632),type:'response_item',payload:{type:'custom_tool_call',call_id:'call_img',name:'exec',input:'const r=await tools.view_image({path:"shot.png"});image(r.image_url);'}},
+    {timestamp:ts(t0+1634),type:'response_item',payload:{type:'custom_tool_call_output',call_id:'call_img',output:[{type:'input_text',text:'Script completed\nWall time 0.0 seconds\nOutput:\n'},
+      {type:'input_image',image_url:dataUrl('image/png'),detail:'high'},{type:'input_image',image_url:dataUrl('image/svg+xml')}]}},
+    ...base.slice(end)];
+  const projection=createCodexProjection(config,{prompt:'Dispatch run: codex-fixture',startedAt});
+  projection.ingestEvent({type:'thread.started',thread_id:tid});for(const record of records)projection.ingestRollout(record);
+  projection.ingestEvent({type:'turn.completed',usage:{}});projection.close();
+  fs.writeFileSync(path.join(config.runDir,'codex-rollout.jsonl'),records.map(x=>JSON.stringify(x)).join('\n')+'\n');
+  save(path.join(config.runDir,'config.json'),config);save(path.join(config.runDir,'status.json'),{runId:config.runId,sessionId:tid,startedAt,updatedAt:Date.now(),workerExited:true,status:'ready_for_review',tools:[],notifications:{}});
+  const root=path.join(config.project,'dashboard'),key=registerRun(config.runDir,root),catalog=createCatalog(root);catalog.refresh();
+  const panel=await serveDashboard({root,catalog});
+  try{
+    const image=(event,index=0)=>fetch(panel.url+`runs/${key}/image?event=${encodeURIComponent(event)}&index=${index}`);
+    const content=await(await fetch(panel.url+'runs/'+key+'/content?event=part%3Acodex-call-call_img')).json();
+    assert.match(content.sections.find(x=>x.field==='output').text,/\[image\]\n\[image\]$/);assert.ok(!JSON.stringify(content).includes('base64'));
+    const ok=await image('part:codex-call-call_img');assert.equal(ok.status,200);assert.equal(ok.headers.get('content-type'),'image/png');
+    assert.deepEqual(Buffer.from(await ok.arrayBuffer()),png);
+    assert.equal((await image('part:codex-call-call_img',1)).status,404,'SVG is never served');
+    assert.equal((await image('part:codex-call-call_img',2)).status,404);assert.equal((await image('part:codex-call-call_1')).status,404);
+    for(const [event,index] of [['part:codex-call-call_img',-1],['part:codex-call-call_img','x'],['part:missing',0],['request:codex-req-1',0],["part:' OR 1=1",0]])
+      assert.equal((await image(event,index)).status,400,`${event} ${index}`);
+  }finally{await panel.close();}
+});

@@ -11,7 +11,8 @@ import { openTelemetry, clean } from './monitor-core.ts';
 import { writeFileAtomic } from '../core/fsutil.ts';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { readEventContent, readEventPreviews } from './event-content.ts';
+import { readEventContent, readEventPreviews, readToolCallId } from './event-content.ts';
+import { readToolImage } from './event-images.ts';
 import { loadRunForExport, sessionExportEntries, sessionLogZipFilename, zipStream } from './session-export.ts';
 
 // The page is the Vite build of web/ (`bun run build:web`): index.html plus content-hashed files under assets/.
@@ -210,6 +211,20 @@ export async function serveDashboard({ root = defaultRoot(), port = 0, token = c
         const ids = (url.searchParams.get('ids') ?? '').split(',').filter(Boolean);
         return send(200, readEventPreviews(run.contentSource.dbPath, { ...run.contentSource, sessionId: run.sessionId, ids }));
       } catch (error) { return send(400, { error: clean(error.message, 200) }); }
+    }
+    // An image a tool returned to the model, as the model saw it. Only Codex runs keep these bytes (in their rollout copy).
+    if ((req.method === 'GET' || req.method === 'HEAD') && /^runs\/[a-f0-9]{24}\/image$/.test(route)) {
+      const run = catalog.get(route.split('/')[1]);
+      if (!run) return send(404, { error: 'Unknown run.' });
+      let image;
+      try {
+        const callId = readToolCallId(run.contentSource.dbPath, { ...run.contentSource, sessionId: run.sessionId, eventId: url.searchParams.get('event') });
+        image = callId && run.workerLabel === 'Codex' ? readToolImage(run.contentSource.runDir, callId, Number(url.searchParams.get('index') ?? 0)) : null;
+      } catch (error) { return send(400, { error: clean(error.message, 200) }); }
+      if (!image) return send(404, { error: 'This run did not keep the image.' });
+      // A recorded tool result never changes, so the browser may keep it for the session.
+      res.writeHead(200, { 'Content-Type': image.type, 'Content-Length': image.data.length, 'Cache-Control': 'private, max-age=3600' });
+      return res.end(req.method === 'HEAD' ? undefined : image.data);
     }
     // Session-log download (DSH-style): HEAD is the preflight, GET streams the ZIP straight to the browser.
     if ((req.method === 'GET' || req.method === 'HEAD') && /^runs\/[a-f0-9]{24}\/export$/.test(route)) {

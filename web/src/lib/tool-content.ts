@@ -166,7 +166,7 @@ export type OutputPart =
   | { type: 'json'; text: string }
   | { type: 'text'; text: string }
   | { type: 'error'; text: string }
-  | { type: 'image' };
+  | { type: 'image'; index: number };
 
 export interface ToolOutput { status?: 'completed' | 'failed'; wallSeconds?: number; parts: OutputPart[] }
 
@@ -207,7 +207,7 @@ export function parseToolOutput(text: string): ToolOutput {
     out.parts.push(exec ? { type: 'exec', exec } : { type: 'json', text: JSON.stringify(whole, null, 2) });
     return out;
   }
-  let prose: string[] = [];
+  let prose: string[] = [], images = 0;
   const flush = () => {
     const joined = prose.join('\n');
     if (joined.trim()) out.parts.push({ type: 'text', text: joined.replace(/^\n+|\n+$/g, '') });
@@ -217,7 +217,7 @@ export function parseToolOutput(text: string): ToolOutput {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (/^Script error:\s*$/.test(line)) { flush(); out.parts.push({ type: 'error', text: lines.slice(i + 1).join('\n').trim() }); break; }
-    if (line.trim() === '[image]') { flush(); out.parts.push({ type: 'image' }); continue; }
+    if (line.trim() === '[image]') { flush(); out.parts.push({ type: 'image', index: images++ }); continue; }
     const value = /^\s*[[{]/.test(line) ? jsonValue(line) : undefined;
     if (value === undefined) { prose.push(line); continue; }
     flush();

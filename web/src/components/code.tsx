@@ -72,23 +72,27 @@ function Clamp({ lines, maxLines, tail, children }: { lines: number; maxLines: n
 export function CodeView({ text, lang, wrap = true, maxLines = 24, tail, className }: {
   text: string; lang?: Lang | null; wrap?: boolean; maxLines?: number; tail?: boolean; className?: string;
 }) {
-  const tokens = useTokens(text, lang);
   const lines = useMemo(() => lineCount(text), [text]);
   return (
     <Clamp lines={lines} maxLines={maxLines} tail={tail}>
       {clamped => {
         const from = clamped && tail ? lines - maxLines : 0;
-        const shown = tokens ? tokens.slice(from) : from ? text.split('\n').slice(from).join('\n') : text;
+        const shown = clamped ? text.split('\n').slice(from, tail ? undefined : maxLines + 4).join('\n') : text;
         return (
           <pre className={cn('overflow-x-auto px-3 py-2 font-mono text-[11.5px] text-(--code-foreground)', wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
             clamped && 'overflow-hidden', className)}
             style={{ lineHeight: LEADING, ...(clamped ? (tail ? FADE_IN : { ...FADE, maxHeight: `${maxLines * LEADING + 1}em` }) : null) }}>
-            {typeof shown === 'string' ? shown || ' ' : shown.map((line, i) => <Fragment key={i}><Line tokens={line} />{i < shown.length - 1 ? '\n' : null}</Fragment>)}
+            <HighlightedText text={shown} lang={lang} />
           </pre>
         );
       }}
     </Clamp>
   );
+}
+
+function HighlightedText({ text, lang }: { text: string; lang?: Lang | null }) {
+  const tokens = useTokens(text, lang);
+  return tokens ? tokens.map((line, i) => <Fragment key={i}><Line tokens={line} />{i < tokens.length - 1 ? '\n' : null}</Fragment>) : text || ' ';
 }
 
 export const LANG_LABEL: Partial<Record<Lang, string>> = { shellscript: 'shell', powershell: 'PowerShell', javascript: 'JavaScript', typescript: 'TypeScript', tsx: 'TSX', json: 'JSON' };
@@ -125,15 +129,16 @@ export function CodeCard({ text, lang, title, meta, actions, tone, maxLines, tai
 const SIGN: Record<PatchLine['type'], string> = { add: '+', del: '−', ctx: ' ', hunk: '', note: '' };
 
 function DiffRows({ lines, lang, wrap, clamped, maxLines }: { lines: PatchLine[]; lang: Lang | null; wrap: boolean; clamped: boolean; maxLines: number }) {
+  const visible = useMemo(() => clamped ? lines.slice(0, maxLines + 4) : lines, [lines, clamped, maxLines]);
   // Old and new lines are highlighted as one document: close enough for reading, one tokenizer pass.
-  const code = useMemo(() => lines.filter(l => l.type === 'add' || l.type === 'del' || l.type === 'ctx').map(l => l.text).join('\n'), [lines]);
+  const code = useMemo(() => visible.filter(l => l.type === 'add' || l.type === 'del' || l.type === 'ctx').map(l => l.text).join('\n'), [visible]);
   const tokens = useTokens(code, lang);
   let row = 0;
   return (
     <div className={cn('overflow-x-auto py-1 font-mono text-[11.5px]', clamped && 'overflow-hidden')}
       style={{ lineHeight: LEADING, ...(clamped ? { ...FADE, maxHeight: `${maxLines * LEADING + 0.5}em` } : null) }}>
       <div className={cn(!wrap && 'w-max min-w-full')}>
-        {lines.map((line, i) => {
+        {visible.map((line, i) => {
           if (line.type === 'hunk' || line.type === 'note') {
             return (
               <div key={i} className="px-3 text-[10.5px] text-info/85 select-none">

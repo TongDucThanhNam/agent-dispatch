@@ -1,39 +1,6 @@
-import type { HighlighterCore, LanguageRegistration, ThemedToken } from 'shiki/core';
-
-// Shiki with the JavaScript regex engine: the hub's CSP has no 'wasm-unsafe-eval', so Oniguruma is out.
-// Grammars load on first use, one chunk each. Colours come from CSS variables (--code-*) so both themes
-// follow the dashboard palette without re-highlighting.
-
-type Grammar = () => Promise<{ default: LanguageRegistration[] }>;
-
-const GRAMMARS = {
-  json: () => import('shiki/langs/json.mjs'),
-  javascript: () => import('shiki/langs/javascript.mjs'),
-  typescript: () => import('shiki/langs/typescript.mjs'),
-  tsx: () => import('shiki/langs/tsx.mjs'),
-  jsx: () => import('shiki/langs/jsx.mjs'),
-  powershell: () => import('shiki/langs/powershell.mjs'),
-  shellscript: () => import('shiki/langs/shellscript.mjs'),
-  python: () => import('shiki/langs/python.mjs'),
-  yaml: () => import('shiki/langs/yaml.mjs'),
-  toml: () => import('shiki/langs/toml.mjs'),
-  markdown: () => import('shiki/langs/markdown.mjs'),
-  css: () => import('shiki/langs/css.mjs'),
-  html: () => import('shiki/langs/html.mjs'),
-  xml: () => import('shiki/langs/xml.mjs'),
-  sql: () => import('shiki/langs/sql.mjs'),
-  rust: () => import('shiki/langs/rust.mjs'),
-  go: () => import('shiki/langs/go.mjs'),
-  csharp: () => import('shiki/langs/csharp.mjs'),
-  java: () => import('shiki/langs/java.mjs'),
-  c: () => import('shiki/langs/c.mjs'),
-  cpp: () => import('shiki/langs/cpp.mjs'),
-  ini: () => import('shiki/langs/ini.mjs'),
-  dockerfile: () => import('shiki/langs/dockerfile.mjs'),
-  diff: () => import('shiki/langs/diff.mjs'),
-} satisfies Record<string, Grammar>;
-
-export type Lang = keyof typeof GRAMMARS;
+import type { ThemedToken } from 'shiki/core';
+import type { Lang } from './highlight-core';
+export type { Lang } from './highlight-core';
 
 const ALIASES: Record<string, Lang> = {
   json: 'json', jsonc: 'json', json5: 'json', jsonl: 'json', geojson: 'json',
@@ -68,45 +35,52 @@ export function shellLang(command: string): Lang {
     ? 'powershell' : 'shellscript';
 }
 
-/** Characters above which text is shown plain: tokenizing stays well under a frame for anything smaller. */
+/** Very large blocks remain plain; smaller blocks are tokenized off the main thread. */
 export const HIGHLIGHT_LIMIT = 120_000;
 
-let core: Promise<HighlighterCore> | null = null;
-const loading = new Map<Lang, Promise<void>>();
-
-function highlighter() {
-  core ??= Promise.all([import('shiki/core'), import('shiki/engine/javascript')]).then(([shiki, engine]) => {
-    const theme = shiki.createCssVariablesTheme({ name: 'dashboard', variablePrefix: '--code-', fontStyle: true });
-    // Shell variables read better coloured; the stock variable theme leaves them as plain text.
-    theme.tokenColors?.push({ scope: ['source.powershell variable', 'source.shell variable'], settings: { foreground: 'var(--code-token-parameter)' } });
-    return shiki.createHighlighterCore({ themes: [theme], langs: [], engine: engine.createJavaScriptRegexEngine({ forgiving: true }) });
-  });
-  return core;
-}
-
-// Recent results, so a remounted block (tab switch, reselecting an event) paints highlighted at once.
+// LRU bounded by both entry count and source size; in-flight work is deduplicated.
 const cache = new Map<string, ThemedToken[][]>();
-const CACHE_SIZE = 60;
+const inflight = new Map<string, Promise<ThemedToken[][]>>();
+const jobs = new Map<number, { resolve: (tokens: ThemedToken[][]) => void; reject: (error: Error) => void }>();
+let worker: Worker | null = null, sequence = 0, cachedChars = 0;
+
+function highlighterWorker() {
+  if (worker) return worker;
+  worker = new Worker(new URL('./highlight.worker.ts', import.meta.url), { type: 'module', name: 'syntax-highlighter' });
+  worker.onmessage = (event: MessageEvent<{ id: number; tokens?: ThemedToken[][]; error?: string }>) => {
+    const job = jobs.get(event.data.id);
+    if (!job) return;
+    jobs.delete(event.data.id);
+    if (event.data.tokens) job.resolve(event.data.tokens); else job.reject(new Error(event.data.error ?? 'Highlighting failed.'));
+  };
+  worker.onerror = () => {
+    for (const job of jobs.values()) job.reject(new Error('Highlighting is unavailable.'));
+    jobs.clear(); worker?.terminate(); worker = null;
+  };
+  return worker;
+}
 
 export function cachedTokens(text: string, lang: Lang): ThemedToken[][] | undefined {
-  return cache.get(`${lang}\u0000${text}`);
+  const key = lang + '\0' + text, tokens = cache.get(key);
+  if (tokens) { cache.delete(key); cache.set(key, tokens); }
+  return tokens;
 }
 
-export async function tokenize(text: string, lang: Lang): Promise<ThemedToken[][]> {
-  const key = `${lang}\u0000${text}`;
-  const hit = cache.get(key);
-  if (hit) return hit;
-  const shiki = await highlighter();
-  let ready = loading.get(lang);
-  if (!ready) {
-    ready = GRAMMARS[lang]().then(module => shiki.loadLanguage(...module.default));
-    loading.set(lang, ready);
-    ready.catch(() => loading.delete(lang));
-  }
-  await ready;
-  // Very long lines (minified bundles, one-line JSON dumps) stay plain rather than stalling the page.
-  const tokens = shiki.codeToTokensBase(text, { lang, theme: 'dashboard', tokenizeMaxLineLength: 5000, tokenizeTimeLimit: 300 });
-  cache.set(key, tokens);
-  if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
-  return tokens;
+export function tokenize(text: string, lang: Lang): Promise<ThemedToken[][]> {
+  const hit = cachedTokens(text, lang);
+  if (hit) return Promise.resolve(hit);
+  const key = lang + '\0' + text, pending = inflight.get(key);
+  if (pending) return pending;
+  const request = new Promise<ThemedToken[][]>((resolve, reject) => {
+    const target = highlighterWorker(), id = ++sequence;
+    jobs.set(id, { resolve, reject }); target.postMessage({ id, text, lang });
+  }).then(tokens => {
+    cache.set(key, tokens); cachedChars += key.length;
+    while (cache.size > 60 || cachedChars > 500_000) {
+      const oldest = cache.keys().next().value!; cachedChars -= oldest.length; cache.delete(oldest);
+    }
+    return tokens;
+  }).finally(() => inflight.delete(key));
+  inflight.set(key, request);
+  return request;
 }

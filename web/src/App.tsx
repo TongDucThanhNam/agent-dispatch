@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Activity, lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import { CircleAlert, Menu, TerminalSquare, TriangleAlert, WifiOff, Workflow } from 'lucide-react';
 import { Sidebar } from '@/components/sidebar';
-import { EventDetail } from '@/components/run/event-detail';
 import { Kpis } from '@/components/run/kpis';
 import { Pipeline } from '@/components/run/pipeline';
 import { RunHeader } from '@/components/run/run-header';
-import { RunSummary } from '@/components/run/run-summary';
 import { TrajectoryTable } from '@/components/run/trajectory-table';
 import { Button } from '@/components/ui/button';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -19,6 +17,10 @@ import type { EventFocus, Run } from '@/lib/types';
 import { usePreviewStore } from '@/lib/use-previews';
 import { useNow, useSnapshot, type Connection } from '@/lib/use-snapshot';
 import { cn } from '@/lib/utils';
+
+const EventDetail = lazy(() => import('@/components/run/event-detail').then(module => ({ default: module.EventDetail })));
+const RunSummary = lazy(() => import('@/components/run/run-summary').then(module => ({ default: module.RunSummary })));
+const panelLoading = <div role="status" aria-label="Loading panel" className="space-y-3 p-4"><Skeleton className="h-5 w-36" /><Skeleton className="h-24 w-full" /></div>;
 
 export function App() {
   const [runKey, selectRun] = useHashRun();
@@ -40,7 +42,8 @@ export function App() {
   }, [run]);
 
   const onSelectRun = useCallback((key: string) => { selectRun(key); setSidebarOpen(false); }, [selectRun]);
-  const openSidebar = docked ? undefined : () => setSidebarOpen(true);
+  const showSidebar = useCallback(() => setSidebarOpen(true), []);
+  const openSidebar = docked ? undefined : showSidebar;
   const switching = pending && Boolean(runKey) && run?.key !== runKey;
   const sidebar = <Sidebar snapshot={snapshot} selected={run?.key ?? runKey} onSelect={onSelectRun} connection={connection} />;
 
@@ -67,10 +70,9 @@ export function App() {
   );
 }
 
-function RunView({ run, online, wide, onSelectRun, onOpenSidebar }: {
+const RunView = memo(function RunView({ run, online, wide, onSelectRun, onOpenSidebar }: {
   run: Run; online: boolean; wide: boolean; onSelectRun: (key: string) => void; onOpenSidebar?: () => void;
 }) {
-  const now = useNow(1000, run.active);
   const previews = usePreviewStore(run.key);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [kind, setKind] = useState<KindFilter>('all');
@@ -106,26 +108,17 @@ function RunView({ run, online, wide, onSelectRun, onOpenSidebar }: {
       search={search} onSearch={setSearch} focus={focus} onFocus={onFocus} follow={follow} onFollow={setFollow} />
   );
   const detail = (maximize: boolean) => selected && (
-    <EventDetail key={selected.id} run={run} event={selected} previews={previews} onBack={() => setSelectedId(null)} onSelect={jumpTo} onFocus={onFocus}
-      maximized={maximize ? maximized : undefined} onMaximize={maximize ? onMaximize : undefined} />
+    <Suspense fallback={panelLoading}><EventDetail key={selected.id} run={run} event={selected} previews={previews} onBack={() => setSelectedId(null)} onSelect={jumpTo} onFocus={onFocus}
+      maximized={maximize ? maximized : undefined} onMaximize={maximize ? onMaximize : undefined} /></Suspense>
   );
   // The summary stays mounted under an open event so its tab and scroll survive a detour into the details.
-  const summary = <RunSummary run={run} now={now} previews={previews} onFocus={onFocus} onSelect={jumpTo} />;
+  const summary = <Suspense fallback={panelLoading}><RunSummary run={run} previews={previews} onFocus={onFocus} onSelect={jumpTo} /></Suspense>;
 
   return (
     <>
       <RunHeader run={run} online={online} onOpenSidebar={onOpenSidebar} />
       <div className={cn('flex min-h-0 flex-1 flex-col', !wide && 'overflow-y-auto')}>
-        <div className="space-y-3 px-4 pt-3 pb-3 lg:px-5">
-          <Pipeline run={run} now={now} onSelect={onSelectRun} />
-          {run.alert && (
-            <div role="status" className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[12.5px]">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
-              <span className="min-w-0">{run.alert}</span>
-            </div>
-          )}
-          <Kpis run={run} now={now} />
-        </div>
+        <RunMetrics run={run} onSelectRun={onSelectRun} />
         {wide ? (
           <div className="min-h-[360px] flex-1 border-t">
             <ResizablePanelGroup orientation="horizontal" id="agent-dispatch.workspace">
@@ -134,7 +127,7 @@ function RunView({ run, online, wide, onSelectRun, onOpenSidebar }: {
               <ResizableHandle />
               <ResizablePanel id="inspector" defaultSize={roomy ? '42%' : '46%'} minSize="28%" className="bg-card/40">
                 {detail(true)}
-                <div className={cn('h-full', selected && 'hidden')}>{summary}</div>
+                <Activity mode={selected ? 'hidden' : 'visible'}><div className="h-full">{summary}</div></Activity>
               </ResizablePanel>
             </ResizablePanelGroup>
           </div>
@@ -154,6 +147,17 @@ function RunView({ run, online, wide, onSelectRun, onOpenSidebar }: {
       </div>
     </>
   );
+});
+
+function RunMetrics({ run, onSelectRun }: { run: Run; onSelectRun: (key: string) => void }) {
+  const now = useNow(1000, run.active);
+  return <div className="space-y-3 px-4 pt-3 pb-3 lg:px-5">
+    <Pipeline run={run} now={now} onSelect={onSelectRun} />
+    {run.alert && <div role="status" className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[12.5px]">
+      <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden /><span className="min-w-0">{run.alert}</span>
+    </div>}
+    <Kpis run={run} now={now} />
+  </div>;
 }
 
 function ConnectionBanner({ connection, receivedAt, hasData }: { connection: Connection; receivedAt: number; hasData: boolean }) {

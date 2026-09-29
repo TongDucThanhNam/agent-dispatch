@@ -87,6 +87,36 @@ test('long trajectories retain the newest 2000 records and report full-session t
   assert.equal(info.trajectory.events.length,2000);assert.equal(info.trajectory.truncated,true);assert.equal(info.trajectory.toolCalls,2101);assert.equal(info.trajectory.events.at(-1).id,'part:extra2099');
 });
 
+test('telemetry reuses unchanged projections and invalidates on database writes and schema changes', () => {
+  const root=temp(),f=fixture(root,'cache'),{db,part,sid}=database(f.config,f.state.startedAt),reader=openTelemetry(f.config.dbPath);
+  try {
+    const query={...f.config,startedAt:f.state.startedAt,sessionId:sid,includeTrajectory:true};
+    const first=reader.read(query);assert.equal(first.available,true);assert.equal(reader.read(query),first);
+    part('added',{type:'tool',tool:'Read',state:{status:'completed'}},f.state.startedAt+10);
+    const second=reader.read(query);assert.notEqual(second,first);assert.equal(second.trajectory.events.at(-1).id,'part:added');
+    assert.equal(reader.read(query),second);
+    db.exec('ALTER TABLE model_usage ADD COLUMN finish_reason TEXT');
+    db.prepare('UPDATE model_usage SET finish_reason=?').run('stop');
+    assert.equal(reader.read(query).trajectory.stats.finishReasons.stop,1);
+    assert.equal(reader.read({...query,project:root}).available,false);
+  } finally {reader.close();db.close();}
+});
+
+test('finished Codex runs hydrate once, preserve cached telemetry and refresh edited reports', () => {
+  const root=temp(),f=fixture(root,'finished-cache',{workerExited:true,status:'ready_for_review'});
+  save(path.join(f.runDir,'config.json'),{...f.config,workerKind:'codex'});
+  const key=registerRun(f.runDir,root);let reads=0;
+  const catalog=createCatalog(root,{observe:()=>{reads++;return {available:true,model:'observed',trajectory:{events:[],toolCalls:3}};}});
+  try {
+    catalog.refresh();catalog.refresh();assert.equal(reads,0);
+    assert.equal(catalog.snapshot(key).selected.trajectory.toolCalls,3);assert.equal(reads,1);
+    catalog.refresh();assert.equal(catalog.snapshot(key).selected.model,'observed');assert.equal(reads,1);
+    fs.writeFileSync(path.join(f.runDir,'worker-report.md'),'A new report');catalog.refresh();
+    assert.equal(catalog.snapshot(key).selected.report,'A new report');assert.equal(reads,1);
+    f.state.updatedAt++;f.write();catalog.refresh();catalog.snapshot(key);assert.equal(reads,2);
+  } finally {catalog.close();}
+});
+
 test('SSE streams new jobs and completion; token, Host and Origin boundaries are enforced', async () => {
   const root=temp(),a=fixture(root,'stream'),key=registerRun(a.runDir,root),catalog=createCatalog(root,{telemetry:false}),panel=await serveDashboard({root,catalog,pollMs:30});
   const abort=new AbortController();

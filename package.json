@@ -16,6 +16,7 @@
     "build:web": "bun run --cwd web build",
     "dev:web": "bun run --cwd web dev",
     "dev:dashboard": "bun scripts/dev-dashboard.ts",
+    "bench:dashboard": "bun scripts/bench-dashboard.ts",
     "check": "bun run typecheck && bun run build:web && bun test --timeout 60000"
   },
   "devDependencies": {

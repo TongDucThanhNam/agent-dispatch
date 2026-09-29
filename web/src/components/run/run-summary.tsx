@@ -1,18 +1,21 @@
 import { Bell, Circle, CircleCheck, CircleDot, FileText, Info, ListTodo } from 'lucide-react';
-import { Markdown } from '@/components/code';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { clock, duration, full, human, num, pct, stamp } from '@/lib/format';
 import { runState, stateLabel, workerTitle } from '@/lib/status';
 import type { EventFocus, Run } from '@/lib/types';
 import type { PreviewStore } from '@/lib/use-previews';
+import { useNow } from '@/lib/use-snapshot';
 import { cn } from '@/lib/utils';
-import { InsightsPanel } from './insights';
 import { Fields, Heading } from './parts';
 
+const InsightsPanel = lazy(() => import('./insights').then(module => ({ default: module.InsightsPanel })));
+const Markdown = lazy(() => import('@/components/code').then(module => ({ default: module.Markdown })));
+const loading = <p role="status" className="py-6 text-center text-xs text-muted-foreground">Loading panel…</p>;
+
 /** The inspector when no event is selected: what went wrong and where the time went, the run at a glance, its report and its plan. */
-export function RunSummary({ run, now, previews, onFocus, onSelect }: {
-  run: Run; now: number; previews: PreviewStore | null; onFocus: (focus: EventFocus | null) => void; onSelect: (id: string) => void;
+export function RunSummary({ run, previews, onFocus, onSelect }: {
+  run: Run; previews: PreviewStore | null; onFocus: (focus: EventFocus | null) => void; onSelect: (id: string) => void;
 }) {
   const done = run.todos.filter(todo => todo.status === 'completed').length;
   return (
@@ -31,12 +34,12 @@ export function RunSummary({ run, now, previews, onFocus, onSelect }: {
         </TabsList>
       </div>
       <TabsContent value="insights" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <InsightsPanel run={run} previews={previews} now={now} onFocus={onFocus} onSelect={onSelect} />
+        <Suspense fallback={loading}><InsightsPanel run={run} previews={previews} onFocus={onFocus} onSelect={onSelect} /></Suspense>
       </TabsContent>
-      <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto px-4 py-3"><Overview run={run} now={now} /></TabsContent>
+      <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto px-4 py-3"><Overview run={run} /></TabsContent>
       <TabsContent value="report" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {run.report
-          ? <Markdown text={run.report} />
+          ? <Suspense fallback={loading}><Markdown text={run.report} /></Suspense>
           : <Empty icon={FileText} text={run.active ? 'The worker writes its report when it finishes.' : 'This run did not leave a report.'} />}
       </TabsContent>
       <TabsContent value="plan" className="min-h-0 flex-1 overflow-y-auto px-4 py-3"><Plan run={run} /></TabsContent>
@@ -62,7 +65,8 @@ function Stat({ label, value, sub, danger }: { label: string; value: string; sub
   );
 }
 
-function Overview({ run, now }: { run: Run; now: number }) {
+function Overview({ run }: { run: Run }) {
+  const now = useNow(1000, run.active);
   const t = run.trajectory, s = t.stats ?? {}, usage = run.usage ?? {};
   const elapsed = (run.endedAt ?? (run.active ? now : run.lastActivityAt ?? run.startedAt)) - run.startedAt;
   const input = s.inputTokens ?? usage.inputTokens, output = s.outputTokens ?? usage.outputTokens;
@@ -155,3 +159,4 @@ function Plan({ run }: { run: Run }) {
     </div>
   );
 }
+import { lazy, Suspense } from 'react';

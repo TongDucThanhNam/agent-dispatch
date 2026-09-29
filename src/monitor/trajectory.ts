@@ -4,7 +4,8 @@
 const label = (value, size = 100) => String(value ?? '').replace(/[\x00-\x1f]/g, '').slice(0, size);
 const number = value => Number.isFinite(Number(value)) && value != null ? Number(value) : null;
 const flag = value => value === 1 || value === true || value === '1' || value === 'true';
-const columnsOf = (db, table) => new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(x => x.name));
+const query = (db, sql) => typeof db.query === 'function' ? db.query(sql) : db.prepare(sql);
+const columnsOf = (db, table) => new Set(query(db, `PRAGMA table_info(${table})`).all().map(x => x.name));
 // Older schemas (and the AGY projection) omit newer columns; select NULL in their place.
 const pick = (columns, name) => columns.has(name) ? name : `NULL ${name}`;
 // ZCode marks runtime-injected user-role messages (reminders, notifications, summaries) as synthetic or non-user origin.
@@ -13,7 +14,7 @@ const injectedLabel = kind => { const text = label(kind, 60).replaceAll('_', ' '
 export function readTrajectory(db, { sessionId, startedAt, limit = 2000 }) {
   const cap = Math.max(1, Math.min(2000, limit));
   const since = startedAt - 2000;
-  const all = (sql, ...args) => db.prepare(sql).all(...args);
+  const all = (sql, ...args) => query(db, sql).all(...args);
   const tables = new Set(all("SELECT name FROM sqlite_master WHERE type='table'").map(x => x.name));
   const messages = all(`SELECT id,time_created,json_extract(data,'$.role') role,
     json_extract(data,'$.time.completed') ended,json_extract(data,'$.modelID') model,
@@ -125,7 +126,7 @@ function readStats(db, { sessionId, since, tables, usageColumns }) {
   const stats: any = {};
   if (tables.has('model_usage')) {
     const has = name => usageColumns.has(name);
-    const row = db.prepare(`SELECT COUNT(*) requests,SUM(input_tokens) input,SUM(output_tokens) output,SUM(cache_read_input_tokens) cache_read,
+    const row = query(db, `SELECT COUNT(*) requests,SUM(input_tokens) input,SUM(output_tokens) output,SUM(cache_read_input_tokens) cache_read,
       ${has('cache_creation_input_tokens') ? 'SUM(cache_creation_input_tokens)' : 'NULL'} cache_write,
       ${has('reasoning_tokens') ? 'SUM(reasoning_tokens)' : 'NULL'} reasoning,
       ${has('time_to_first_token_ms') ? 'AVG(time_to_first_token_ms)' : has('first_token_at') ? 'AVG(first_token_at-started_at)' : 'NULL'} ttft,
@@ -142,22 +143,22 @@ function readStats(db, { sessionId, since, tables, usageColumns }) {
       requestErrors: row.errors ?? 0, retries: row.retries ?? 0,
       // ZCode counts cached tokens inside input_tokens; AGY/Gemini reports them separately. Both give a 0-100% hit rate.
       cacheHitRate: row.prompt_total > 0 && row.cache_read != null ? Math.round(row.cache_read / row.prompt_total * 1000) / 10 : null });
-    if (has('finish_reason')) stats.finishReasons = Object.fromEntries(db.prepare(`SELECT finish_reason reason,COUNT(*) count FROM model_usage
+    if (has('finish_reason')) stats.finishReasons = Object.fromEntries(query(db, `SELECT finish_reason reason,COUNT(*) count FROM model_usage
       WHERE session_id=? AND started_at>=? AND finish_reason IS NOT NULL GROUP BY finish_reason ORDER BY count DESC LIMIT 8`)
       .all(sessionId, since).map(x => [label(x.reason, 40), x.count]));
   }
-  stats.tools = db.prepare(`SELECT json_extract(data,'$.tool') name,COUNT(*) calls,
+  stats.tools = query(db, `SELECT json_extract(data,'$.tool') name,COUNT(*) calls,
     SUM(CASE WHEN json_extract(data,'$.state.status')='error' OR json_extract(data,'$.state.error') IS NOT NULL THEN 1 ELSE 0 END) errors,
     SUM(CASE WHEN json_extract(data,'$.state.time.end')>=json_extract(data,'$.state.time.start')
       THEN json_extract(data,'$.state.time.end')-json_extract(data,'$.state.time.start') END) ms
     FROM part WHERE session_id=? AND time_created>=? AND json_valid(data) AND json_extract(data,'$.type')='tool'
     GROUP BY name ORDER BY calls DESC LIMIT 30`).all(sessionId, since)
     .map(x => ({ name: label(x.name || 'Tool', 60), calls: x.calls, errors: x.errors ?? 0, ms: number(x.ms) }));
-  const counts = db.prepare(`SELECT SUM(CASE WHEN json_extract(data,'$.type') IN ('compaction','checkpoint') THEN 1 ELSE 0 END) compactions,
+  const counts = query(db, `SELECT SUM(CASE WHEN json_extract(data,'$.type') IN ('compaction','checkpoint') THEN 1 ELSE 0 END) compactions,
     SUM(CASE WHEN json_extract(data,'$.type')='retry' THEN 1 ELSE 0 END) retries
     FROM part WHERE session_id=? AND time_created>=? AND json_valid(data)`).get(sessionId, since);
   stats.compactions = counts.compactions ?? 0; stats.retryParts = counts.retries ?? 0;
   stats.toolErrors = stats.tools.reduce((n, x) => n + x.errors, 0);
-  if (tables.has('session')) stats.subagents = db.prepare('SELECT COUNT(*) count FROM session WHERE parent_id=?').get(sessionId).count;
+  if (tables.has('session')) stats.subagents = query(db, 'SELECT COUNT(*) count FROM session WHERE parent_id=?').get(sessionId).count;
   return stats;
 }

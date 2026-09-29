@@ -21,7 +21,7 @@ import {
   shortPath, type ExecResult, type PatchFile, type ToolAction,
 } from '@/lib/tool-content';
 import type { ContentSection, EventFocus, Run, TrajectoryEvent } from '@/lib/types';
-import type { PreviewStore } from '@/lib/use-previews';
+import { usePreviewVersion, type PreviewStore } from '@/lib/use-previews';
 import { cn } from '@/lib/utils';
 import { Fields, Heading } from './parts';
 
@@ -112,7 +112,7 @@ function SameCalls({ events, event, previews, onSelect, onFocus }: {
   events: TrajectoryEvent[]; event: TrajectoryEvent; previews: PreviewStore | null; onSelect: (id: string) => void; onFocus: (focus: EventFocus | null) => void;
 }) {
   useEffect(() => { previews?.request(events.filter(e => e.kind === 'tool' && e.label === event.label)); }, [previews, events, event.label]);
-  const version = previews?.version ?? 0;
+  const version = usePreviewVersion(previews);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const same = useMemo(() => sameCalls(events, previews, event), [events, previews, version, event]);
   if (same.length < 2) return null;
@@ -146,12 +146,14 @@ function Content({ run, event }: { run: Run; event: TrajectoryEvent }) {
   const [moreError, setMoreError] = useState<string | null>(null);
   // Expanded sections stay stable until the user refreshes them.
   const frozen = Object.keys(pages).length > 0;
-  const live = run.active && (isRunning(event) || !event.endedAt);
+  const live = run.active && (isRunning(event) || event.kind === 'model' && !event.endedAt);
   const query = useQuery({
-    queryKey: ['content', run.key, event.id],
+    // Completion changes the key so the last streamed response is not cached as the final result.
+    queryKey: ['content', run.key, event.id, event.status, event.endedAt ?? null, run.active],
     queryFn: ({ signal }) => fetchContent(run.key, event.id, undefined, signal),
     refetchInterval: live && !frozen ? 3000 : false,
     staleTime: live ? 0 : Infinity,
+    gcTime: 120_000,
   });
 
   const loadMore = async (section: ContentSection, nextOffset: number) => {

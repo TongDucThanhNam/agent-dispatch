@@ -12,6 +12,7 @@ const DEV_TOKEN = 'de00'.repeat(12);
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: './',
+  worker: { format: 'es' },
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   build: {
     outDir: path.resolve(import.meta.dirname, '../assets/web/dashboard'),
@@ -19,7 +20,7 @@ export default defineConfig({
     modulePreload: { polyfill: false },
     // The hub's CSP allows fonts and images from itself only, so nothing is inlined as a data: URL.
     assetsInlineLimit: 0,
-    chunkSizeWarningLimit: 1500,
+    chunkSizeWarningLimit: 600,
   },
   server: {
     host: '127.0.0.1',

@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef } from 'react';
+import { memo, useDeferredValue, useEffect, useMemo, useRef } from 'react';
 import {
   columnFilteringFeature, createColumnHelper, createFilteredRowModel, filterFn_includesString, globalFilteringFeature, tableFeatures, useTable,
   type ColumnFiltersState, type FilterFn,
@@ -14,7 +14,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { clock, duration, full, human, num, stamp } from '@/lib/format';
 import { eventName, isFailed, isRunning, KIND_FILTERS, kindMeta, type KindFilter } from '@/lib/status';
 import type { EventFocus, Run, TrajectoryEvent } from '@/lib/types';
-import type { PreviewStore } from '@/lib/use-previews';
+import { usePreviewVersion, type PreviewStore } from '@/lib/use-previews';
 import { cn } from '@/lib/utils';
 
 interface Item { event: TrajectoryEvent; index: number; search: string }
@@ -37,25 +37,34 @@ const GRID = 'grid grid-cols-[82px_minmax(0,1fr)_56px] @md:grid-cols-[92px_minma
 
 const HEADER_HEIGHT = 28;
 
-export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onKind, search, onSearch, focus, onFocus, follow, onFollow }: {
+export const TrajectoryTable = memo(function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onKind, search, onSearch, focus, onFocus, follow, onFollow }: {
   run: Run; previews: PreviewStore | null; selectedId: string | null; onSelect: (id: string | null) => void;
   kind: KindFilter; onKind: (kind: KindFilter) => void; search: string; onSearch: (search: string) => void;
   focus: EventFocus | null; onFocus: (focus: EventFocus | null) => void; follow: boolean; onFollow: (follow: boolean) => void;
 }) {
   const events = run.trajectory.events;
-  const version = previews?.version ?? 0;
+  const version = usePreviewVersion(previews);
   const deferredSearch = useDeferredValue(search);
 
   // Search covers what the row shows, including the lazily loaded previews.
-  const data = useMemo<Item[]>(() => events.map((event, index) => {
+  const indexCache = useRef(new Map<string, { preview: unknown; item: Item }>());
+  const data = useMemo<Item[]>(() => {
+    const next = new Map<string, { preview: unknown; item: Item }>();
+    const items = events.map((event, index) => {
     const preview = previews?.get(event.id);
-    return {
+    const old = indexCache.current.get(event.id);
+    if (old?.item.event === event && old.item.index === index && old.preview === preview) { next.set(event.id, old); return old.item; }
+    const item = {
       event, index,
       search: [eventName(event), event.label, kindMeta(event.kind).role, event.status, event.finishReason, event.reason, preview?.text, preview?.result,
         event.request ? `#${event.request}` : '', event.error].filter(Boolean).join(' '),
     };
+    next.set(event.id, { preview, item }); return item;
+    });
+    indexCache.current = next;
+    return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [events, previews, version]);
+  }, [events, previews, version]);
 
   const columns = useMemo(() => helper.columns([
     helper.accessor(item => item.index, {
@@ -112,9 +121,15 @@ export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onK
     scrollPaddingStart: HEADER_HEIGHT,
   });
   const items = virtualizer.getVirtualItems();
+  const visibleEvents = useRef<TrajectoryEvent[]>([]);
+  visibleEvents.current = items.map(item => rows[item.index]?.original.event).filter(Boolean) as TrajectoryEvent[];
 
   // Load previews for the rows on screen.
-  useEffect(() => { previews?.request(items.map(item => rows[item.index]?.original.event).filter(Boolean) as TrajectoryEvent[]); });
+  useEffect(() => { previews?.request(visibleEvents.current); });
+  useEffect(() => {
+    const timer = setInterval(() => { if (!document.hidden) previews?.request(visibleEvents.current); }, 4000);
+    return () => clearInterval(timer);
+  }, [previews]);
 
   // Follow keeps the newest event in view.
   useEffect(() => {
@@ -269,7 +284,7 @@ export function TrajectoryTable({ run, previews, selectedId, onSelect, kind, onK
       </div>
     </section>
   );
-}
+});
 
 /** The kind filter as a menu, for panels too narrow for the toggle row. */
 function KindMenu({ kind, onKind, counts }: { kind: KindFilter; onKind: (kind: KindFilter) => void; counts: Record<string, number> }) {

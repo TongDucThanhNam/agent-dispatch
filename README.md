@@ -115,7 +115,7 @@ The hub serves the Vite build of `web/` from `assets/web/dashboard/`. The build 
 bun run build:web
 ```
 
-Without a build the hub still serves run data and shows a page naming this command; `doctor` reports it as `hub.page: "missing"`. A running hub keeps the page it loaded until `agent-dispatch hub restart`.
+Without a build the hub still serves run data and shows a page naming this command; `doctor` reports it as `hub.page: "missing"`. Reload after UI builds. Server changes require `agent-dispatch hub restart` once no runs are active; older hubs also need that restart to discard their previously cached page.
 
 To work on the UI against real runs without touching the shared hub:
 
@@ -128,6 +128,29 @@ bun run dev:web
 ```
 
 `dev:dashboard` is a read-only hub on `127.0.0.1:4780` (Stop and Retry are refused; it rereads the build on every request). `dev:web` is Vite with hot reload on `127.0.0.1:5173`, proxying `/api/` to that hub.
+
+### Performance
+
+The dashboard uses native `Bun.serve`, `Bun.file` and cached `bun:sqlite` telemetry queries. Catalog polling stops without stream clients. Unchanged files and database projections are reused; finished trajectories load on selection. Cache invalidation still checks file identity, timestamps, database changes and schema changes.
+
+The UI requests SSE protocol v2: a full snapshot on connection, changed fields/events afterward, and lightweight heartbeats otherwise. Legacy clients retain full snapshots. Clients viewing the same run share snapshot generation. Background tabs disconnect and resynchronize on return. Virtualized rows, incremental search indexing, prioritized/cancellable preview batches, local clocks, lazy inspector panels and worker-based syntax highlighting keep unnecessary work out of the interaction path.
+
+Run the synthetic transport benchmark (no workers or model calls):
+
+```bash
+bun run bench:dashboard
+```
+
+On Windows/Bun 1.4.2, four clients viewing 2,000 events at an accelerated 50 ms poll interval produced these one-second samples, excluding the initial full snapshots:
+
+| Measurement | Before | After |
+|---|---:|---:|
+| Unchanged update bytes | 21,104,592 | 2,888 |
+| One event changed per tick: update bytes | 21,104,788 | 22,084 |
+| Snapshot generations per scenario | 80 | 20 |
+| Eager production JavaScript, uncompressed | 862,202 B | approximately 609 KB |
+
+The eager-JavaScript measurement includes the entry and its preloaded shared chunk; inspector, Markdown and highlighting chunks are loaded separately. Production polling remains 2 seconds. These are workload-specific transport/build measurements, not an FPS or latency guarantee. Tests cover delta reconstruction (including sliding event windows), cache invalidation, stream lifecycle, preview cancellation, security boundaries and ZIP export.
 
 ## Skills
 

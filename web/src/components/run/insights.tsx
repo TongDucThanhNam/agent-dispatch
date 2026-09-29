@@ -9,7 +9,8 @@ import { duration, full, num } from '@/lib/format';
 import { computeInsights, eventMs, needsPreview, type ContextPoint, type Finding, type Severity } from '@/lib/insights';
 import { eventName, isFailed } from '@/lib/status';
 import type { EventFocus, Run, ToolStat } from '@/lib/types';
-import type { PreviewStore } from '@/lib/use-previews';
+import { usePreviewVersion, type PreviewStore } from '@/lib/use-previews';
+import { useNow } from '@/lib/use-snapshot';
 import { cn } from '@/lib/utils';
 import { Heading } from './parts';
 
@@ -23,13 +24,14 @@ const SEVERITY: Record<Severity, { icon: LucideIcon; label: string; icon_: strin
 };
 
 /** Diagnostics for auditing the run: findings first, then the breakdowns they come from. */
-export function InsightsPanel({ run, previews, now, onFocus, onSelect }: {
-  run: Run; previews: PreviewStore | null; now: number; onFocus: OnFocus; onSelect: (id: string) => void;
+export function InsightsPanel({ run, previews, onFocus, onSelect }: {
+  run: Run; previews: PreviewStore | null; onFocus: OnFocus; onSelect: (id: string) => void;
 }) {
   const events = run.trajectory.events;
   // Error text and call inputs come from the one-line previews; read them for every call, not just visible rows.
-  useEffect(() => { previews?.request(events.filter(needsPreview)); }, [previews, events]);
-  const version = previews?.version ?? 0;
+  const version = usePreviewVersion(previews);
+  const now = useNow(5000, run.active);
+  useEffect(() => { previews?.request(events.filter(needsPreview), false); }, [previews, events, now]);
   const tick = run.active ? Math.floor(now / 5000) : 0;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const insights = useMemo(() => computeInsights(run, previews, now), [run, previews, version, tick]);

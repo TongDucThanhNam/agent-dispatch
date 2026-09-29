@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { Database } from 'bun:sqlite';
 import { readTrajectory } from './trajectory.ts';
 
 // Numeric codes are ZCode's; the named ones are Codex/OpenAI usage-limit codes.
@@ -68,15 +68,25 @@ function normalizedDirectory(value) { return path.resolve(value).replaceAll('\\'
 // Read-only, narrow projections: no prompt, reasoning text, tool output or credentials leave this reader.
 export function openTelemetry(dbPath) {
   if (!fs.existsSync(dbPath)) return { read: () => ({ available: false, reason: 'Session database is not available yet.' }), close() {} };
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const db = new Database(dbPath, { readonly: true });
   db.exec('PRAGMA query_only=ON; PRAGMA busy_timeout=500');
-  const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(x => x.name));
+  let tables = new Set<string>();
+  let schemaVersion = -1;
+  let cached: { version: number; key: string; value: any } | null = null;
   let boundSession: any = null;
-  const all = (sql, ...args) => db.prepare(sql).all(...args);
+  let boundRun = '';
+  const all = (sql, ...args): any[] => db.query(sql).all(...args);
   return {
     close() { db.close(); },
     read({ sessionId, project, startedAt, runId, includeTrajectory = false }) {
       try {
+        const version = (db.query('PRAGMA data_version').get() as { data_version: number }).data_version;
+        const schema = (db.query('PRAGMA schema_version').get() as { schema_version: number }).schema_version;
+        const key = JSON.stringify([sessionId, project, startedAt, runId, includeTrajectory]);
+        if (cached?.version === version && cached.key === key && schemaVersion === schema) return cached.value;
+        if (schemaVersion !== schema) { schemaVersion = schema; tables = new Set(all("SELECT name FROM sqlite_master WHERE type='table'").map(x => x.name)); }
+        const binding = JSON.stringify([project, runId, startedAt]);
+        if (binding !== boundRun) { boundRun = binding; boundSession = null; }
         if (!tables.has('session') || !tables.has('message') || !tables.has('part')) return { available: false, reason: 'Unsupported session database schema.' };
         if (sessionId) boundSession = sessionId;
         if (!boundSession) {
@@ -91,7 +101,7 @@ export function openTelemetry(dbPath) {
           boundSession = matches[0]?.id ?? null;
         }
         if (!boundSession) return { available: true, sessionId: null, lastActivityAt: startedAt, errors: [], tools: [], todos: [] };
-        const session = db.prepare('SELECT id,directory,time_created,time_updated FROM session WHERE id=?').get(boundSession);
+        const session: any = db.query('SELECT id,directory,time_created,time_updated FROM session WHERE id=?').get(boundSession);
         if (!session || normalizedDirectory(session.directory) !== normalizedDirectory(project)) throw new Error('Session belongs to a different project.');
         const messageMeta = all(`SELECT id,time_updated,json_extract(data,'$.role') role,json_extract(data,'$.modelID') model,
           json_extract(data,'$.providerID') provider,json_extract(data,'$.error') error FROM message
@@ -129,11 +139,13 @@ export function openTelemetry(dbPath) {
           startedAt: x.started ?? x.time_updated, updatedAt: x.time_updated, endedAt: x.ended, error: x.tool_error ? clean(x.tool_error, 300) : null }));
         const lastActivityAt = Math.max(startedAt, ...messageMeta.map(x => x.time_updated), ...parts.map(x => x.time_updated), currentModel?.startedAt ?? 0, latestSuccessAt);
         const assistant = messageMeta.find(x => x.role === 'assistant');
-        return { available: true, sessionId: boundSession, lastActivityAt, latestSuccessAt, usage, tools, todos,
+        const value = { available: true, sessionId: boundSession, lastActivityAt, latestSuccessAt, usage, tools, todos,
           model: currentModel?.model ?? assistant?.model ?? null, provider: currentModel?.provider ?? assistant?.provider ?? null,
           modelStatus: currentModel?.status ?? null, errors: errors.filter(x => x.at >= startedAt - 2000 && x.at > latestSuccessAt).sort((a, b) => b.at - a.at),
           lastPartType: parts[0]?.type ?? null,
           ...(includeTrajectory ? { trajectory: readTrajectory(db, { sessionId: boundSession, startedAt }) } : {}) };
+        cached = { version, key, value };
+        return value;
       } catch (error) { return { available: false, reason: clean(error.message, 180), sessionId: boundSession }; }
     }
   };

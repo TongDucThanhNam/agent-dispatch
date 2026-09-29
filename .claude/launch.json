@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard-dev",
+      "runtimeExecutable": "C:\\Users\\terasumi\\.bun\\bin\\bun.exe",
+      "runtimeArgs": [
+        "scripts/dev-dashboard.ts"
+      ],
+      "port": 4780,
+      "url": "http://127.0.0.1:4780"
+    },
+    {
+      "name": "web-dev",
+      "runtimeExecutable": "C:\\Users\\terasumi\\.bun\\bin\\bun.exe",
+      "runtimeArgs": [
+        "run",
+        "--cwd",
+        "web",
+        "dev"
+      ],
+      "port": 5173,
+      "url": "http://127.0.0.1:5173"
+    }
+  ]
+}

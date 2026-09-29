@@ -153,7 +153,7 @@ export function Sidebar({ snapshot, selected, onSelect, connection }: {
   snapshot: Snapshot | null; selected: string | null; onSelect: (key: string) => void; connection: Connection;
 }) {
   const [filter, setFilter] = useState('');
-  const now = useNow(1000);
+  const now = useNow(snapshot?.runs.length ? 1000 : 60_000);
   const { theme, toggle } = useTheme();
   const q = filter.trim().toLowerCase();
   const running = useMemo(() => (snapshot?.runs ?? []).filter(run => matches(run, q)), [snapshot?.runs, q]);

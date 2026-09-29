@@ -2,7 +2,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { asset, CLI_ENTRY } from '../core/paths.ts';
@@ -10,7 +9,8 @@ import { shortRef } from '../core/config.ts';
 import { openTelemetry, clean } from './monitor-core.ts';
 import { writeFileAtomic } from '../core/fsutil.ts';
 import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { snapshotUpdate } from '../../shared/dashboard-protocol.ts';
+import type { Snapshot } from '../../web/src/lib/types.ts';
 import { readEventContent, readEventPreviews, readToolCallId } from './event-content.ts';
 import { readToolImage } from './event-images.ts';
 import { loadRunForExport, sessionExportEntries, sessionLogZipFilename, zipStream } from './session-export.ts';
@@ -25,14 +25,6 @@ const MISSING_PAGE = '<!doctype html><meta charset="utf-8"><title>Agent Dispatch
 /** Only index.html and flat files under assets/ with a known type; anything else is not part of the page. */
 const pageFile = (dir, route) => route === '' ? path.join(dir, 'index.html')
   : /^assets\/[\w-]+(\.[\w-]+)*$/.test(route) && Object.hasOwn(TYPES, path.extname(route)) ? path.join(dir, route) : null;
-const pageCache = new Map<string, Buffer | null>();
-const readPage = (file, dev) => {
-  if (!dev && pageCache.has(file)) return pageCache.get(file);
-  let data: Buffer | null = null;
-  try { data = fs.readFileSync(file); } catch { /* not built */ }
-  if (!dev && data) pageCache.set(file, data);
-  return data;
-};
 export const defaultRoot = () => path.resolve(process.env.ZCODE_DASHBOARD_ROOT ?? path.join(os.homedir(), '.zcode', 'monitor'));
 const read = file => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 const save = (file, data) => writeFileAtomic(file, JSON.stringify(data, null, 2) + '\n');
@@ -68,24 +60,27 @@ export function registerRun(runDir, root = defaultRoot()) {
   return key;
 }
 
-export function readRun(entry, { now = Date.now(), alive = isAlive, telemetry = true, observeInactive = false } = {}) {
-  const config = read(path.join(entry.runDir, 'config.json')), state = read(path.join(entry.runDir, 'status.json'));
+const observeRun = (config, query) => {
+  const reader = openTelemetry(config.dbPath);
+  try { return reader.read(query); } finally { reader.close(); }
+};
+
+export function readRun(entry, { now = Date.now(), alive = isAlive, telemetry = true, observeInactive = false,
+  readFile = read, reportFile = readReport, observe = observeRun } = {}) {
+  const config = readFile(path.join(entry.runDir, 'config.json')), state = readFile(path.join(entry.runDir, 'status.json'));
   if (state.runId !== config.runId || path.resolve(config.runDir) !== path.resolve(entry.runDir)) throw new Error('Run record identity differs.');
   const runnerAlive = alive(state.runnerPid), workerAlive = alive(state.workerPid);
   const active = !state.workerExited && !terminal.has(state.status) && (workerAlive || runnerAlive);
   const stale = active && (!runnerAlive || now - state.updatedAt > Math.max(60_000, (config.pollMs ?? 5000) * 3));
   let observed: any = null;
-  // Finished ZCode runs are observed once on demand (see catalog.hydrate); the shared database can be large.
-  // AGY and Codex runs have small per-run projections.
-  if ((active || ['agy', 'codex'].includes(config.workerKind) || observeInactive) && telemetry) {
-    let reader;
-    try { reader = openTelemetry(config.dbPath); observed = reader.read({ project: config.project, sessionId: state.sessionId,
+  // Every worker's finished trajectory is loaded only on selection, not on each catalog poll.
+  if ((active || observeInactive) && telemetry) {
+    try { observed = observe(config, { project: config.project, sessionId: state.sessionId,
       runId: state.runId, startedAt: state.startedAt, includeTrajectory: true }); }
     catch { observed = { available: false, reason: 'Local events are temporarily unavailable.' }; }
-    finally { reader?.close(); }
   }
   const names = config.project.replaceAll('\\', '/').split('/').filter(Boolean);
-  let review: any = null; try { review = read(path.join(entry.runDir, 'review.json')); } catch {}
+  let review: any = null; try { review = readFile(path.join(entry.runDir, 'review.json')); } catch {}
   const status = stale ? 'unconfirmed' : review ? review.verdict === 'accepted' ? 'complete' : 'changes_required'
     : !active && !state.workerExited ? 'monitor_offline' : state.status;
   const events = observed?.trajectory?.events ?? (state.tools ?? []).map(tool => ({ id: `part:${tool.id}`, kind: 'tool', label: clean(tool.name),
@@ -100,7 +95,7 @@ export function readRun(entry, { now = Date.now(), alive = isAlive, telemetry = 
     trajectory: observed?.trajectory ?? { events, turns: null, toolCalls: null, truncated: true },
     telemetryAvailable: observed?.available ?? state.telemetryAvailable,
     telemetryReason: observed?.reason ?? state.telemetryReason,
-    report: state.workerExited ? readReport(path.join(entry.runDir, review ? 'review.md' : 'worker-report.md')) : null,
+    report: state.workerExited ? reportFile(path.join(entry.runDir, review ? 'review.md' : 'worker-report.md')) : null,
     alert: stale ? 'The run monitor is offline; worker state needs checking.' : clean(state.alert?.message ?? state.error?.message, 600),
     notifications: Object.values<any>(state.notifications ?? {}).map(x => ({ kind: x.kind, state: x.state })),
     canStop: active && !stale && Boolean(state.url), canRetryNotification: runnerAlive && Object.values<any>(state.notifications ?? {}).some(x => ['failed', 'unconfirmed'].includes(x.state)),
@@ -111,30 +106,65 @@ export function readRun(entry, { now = Date.now(), alive = isAlive, telemetry = 
 
 export function createCatalog(root, options: any = {}) {
   let records: Map<any, any> = new Map<any, any>();
+  const files = new Map<string, { stamp: string; value: any }>();
+  const readers = new Map<string, { identity: string; reader: ReturnType<typeof openTelemetry> }>();
+  const cached = (file: string, json = true) => {
+    const stat = fs.statSync(file);
+    if (!json && stat.size > 65_536) return null;
+    const stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+    const previous = files.get(file);
+    if (previous?.stamp === stamp) return previous.value;
+    const value = json ? read(file) : clean(fs.readFileSync(file, 'utf8'), 65_536);
+    files.delete(file); files.set(file, { stamp, value });
+    if (files.size > 4096) files.delete(files.keys().next().value!);
+    return value;
+  };
+  const observe = (config, query) => {
+    const id = `${config.dbPath}\0${config.runId}`;
+    const stat = fs.statSync(config.dbPath), identity = `${stat.dev}:${stat.ino}:${stat.birthtimeMs}`;
+    let entry = readers.get(id);
+    if (entry && entry.identity !== identity) { entry.reader.close(); readers.delete(id); entry = undefined; }
+    if (!entry) {
+      entry = { identity, reader: openTelemetry(config.dbPath) }; readers.set(id, entry);
+      if (readers.size > 32) { const key = readers.keys().next().value!; readers.get(key)!.reader.close(); readers.delete(key); }
+    }
+    return entry.reader.read(query);
+  };
+  const readOptions = { ...options, readFile: (file: string) => cached(file),
+    reportFile: (file: string) => { try { return cached(file, false); } catch { return null; } }, observe: options.observe ?? observe };
+  const idle = () => { for (const entry of readers.values()) entry.reader.close(); readers.clear(); };
   return {
+    idle,
+    close() { idle(); files.clear(); records.clear(); },
     refresh() {
       const next = new Map<any, any>();
       let files: any[] = []; try { files = fs.readdirSync(path.join(root, 'runs')).filter(x => /^[a-f0-9]{24}\.json$/.test(x)); } catch {}
       for (const file of files) {
         try {
-          const entry = read(path.join(root, 'runs', file));
+          const entry = cached(path.join(root, 'runs', file));
           if (entry.key !== file.slice(0, -5) || keyFor(entry.runDir) !== entry.key) continue;
-          const run = readRun(entry, options);
+          const run = readRun(entry, readOptions);
           const previous = records.get(run.key);
-          if (!run.active && previous?.hydrated) Object.assign(run, { trajectory: previous.trajectory, usage: previous.usage, model: previous.model, hydrated: true });
+          if (!run.active && previous?.hydrated && previous.sessionId === run.sessionId && previous.updatedAt === run.updatedAt && previous.contentSource.dbPath === run.contentSource.dbPath)
+            Object.assign(run, { trajectory: previous.trajectory, usage: previous.usage, model: previous.model,
+              telemetryAvailable: previous.telemetryAvailable, telemetryReason: previous.telemetryReason, hydrated: true });
           else if (!run.active && previous?.trajectory?.events?.length) run.trajectory = previous.trajectory;
           next.set(run.key, run);
         } catch { /* An atomic record write can race a read. Retain no false running entry. */ }
       }
       records = next;
+      const activeReaders = new Set([...records.values()].filter(run => run.active).map(run => `${run.contentSource.dbPath}\0${run.runId}`));
+      for (const [key, entry] of readers) if (!activeReaders.has(key)) { entry.reader.close(); readers.delete(key); }
     },
     get: key => records.get(key),
     // Read a finished run's full trajectory once, when someone opens it.
     hydrate(key) {
       const run = records.get(key);
       if (!run || run.active || run.hydrated || options.telemetry === false) return run;
-      try { const fresh: any = readRun({ key, runDir: run.contentSource.runDir }, { ...options, observeInactive: true }); fresh.hydrated = true; records.set(key, fresh); return fresh; }
-      catch { run.hydrated = true; return run; }
+      try {
+        const fresh: any = readRun({ key, runDir: run.contentSource.runDir }, { ...readOptions, observeInactive: true });
+        fresh.hydrated = fresh.telemetryAvailable === true; records.set(key, fresh); return fresh;
+      } catch { return run; }
     },
     snapshot(selectedKey) {
       const all = [...records.values()], active = all.filter(x => x.active).sort((a, b) => b.startedAt - a.startedAt);
@@ -169,30 +199,40 @@ export async function proxyAction(run, action) {
 /** `dev` re-reads the built page on every request, so a rebuild shows on reload. */
 export async function serveDashboard({ root = defaultRoot(), port = 0, token = crypto.randomBytes(24).toString('hex'), pollMs = 2000, catalog = createCatalog(root), action = proxyAction, dev = false, pageDir = DIST } = {}) {
   if (!/^[a-f0-9]{48}$/.test(token)) throw new Error('Invalid dashboard token.');
-  const clients = new Set<any>(), downloads = new Set<any>();
-  catalog.refresh();
-  let actualPort;
-  const server = http.createServer(async (req, res) => {
-    const host = `127.0.0.1:${actualPort}`, origin = `http://${host}`, base = `/${token}/`;
-    res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'no-referrer'); res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
-    const send = (code, data) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
-    if (req.headers.host !== host || req.headers.origin && req.headers.origin !== origin) return send(403, { error: 'Invalid origin.' });
-    const url = new URL(req.url!, origin);
+  type Client = { key: string | null; delta: boolean; controller: ReadableStreamDefaultController<Uint8Array>; close: () => void };
+  const clients = new Set<Client>(), downloads = new Set<{ close(): void }>();
+  const groups = new Map<string | null, Snapshot>();
+  const pages = new Map<string, Bun.BunFile>();
+  const encoder = new TextEncoder();
+  const frame = (data: unknown, event?: string) => encoder.encode(`${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`);
+  let refreshedAt = -Infinity;
+  const refresh = (force = false) => { if (force || Date.now() - refreshedAt >= pollMs) { catalog.refresh(); refreshedAt = Date.now(); } };
+  refresh();
+  const server = Bun.serve({ port, hostname: '127.0.0.1', idleTimeout: 0, development: false,
+    async fetch(req, server) {
+    const host = `127.0.0.1:${server.port}`, origin = `http://${host}`, base = `/${token}/`;
+    const headers = new Headers({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'SAMEORIGIN',
+      'Content-Security-Policy': "default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'" });
+    const send = (status, data) => Response.json(data, { status, headers });
+    if (req.headers.get('host') !== host || req.headers.has('origin') && req.headers.get('origin') !== origin) return send(403, { error: 'Invalid origin.' });
+    const url = new URL(req.url);
     if (!url.pathname.startsWith(base)) return send(404, { error: 'Unknown dashboard.' });
     const route = url.pathname.slice(base.length);
     const file = req.method === 'GET' || req.method === 'HEAD' ? pageFile(pageDir, route) : null;
     if (file) {
-      const data = readPage(file, dev);
-      if (!data && route === '') { res.writeHead(503, { 'Content-Type': TYPES['.html'] }); return res.end(MISSING_PAGE); }
-      if (!data) return send(404, { error: 'Unknown dashboard file.' });
-      // Built assets are content-hashed, so the browser may keep them.
-      if (route !== '' && !dev) res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-      res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)], 'Content-Length': data.length });
-      return res.end(req.method === 'HEAD' ? undefined : data);
+      const data = pages.get(file) ?? Bun.file(file);
+      if (!await data.exists()) {
+        if (route !== '') return send(404, { error: 'Unknown dashboard file.' });
+        headers.set('Content-Type', TYPES['.html']);
+        return new Response(req.method === 'HEAD' ? null : MISSING_PAGE, { status: 503, headers });
+      }
+      if (route !== '' && !dev) { pages.set(file, data); headers.set('Cache-Control', 'private, max-age=31536000, immutable'); }
+      headers.set('Content-Type', TYPES[path.extname(file)]); headers.set('Content-Length', String(data.size));
+      return new Response(req.method === 'HEAD' ? null : data, { headers });
     }
-    if (req.method === 'GET' && route === 'health') return send(200, { service: 'zcode-dashboard', version: 4, pid: process.pid });
+    if (req.method === 'GET' && route === 'health') return send(200, { service: 'zcode-dashboard', version: 5, pid: process.pid });
+    refresh();
     if (req.method === 'GET' && route === 'snapshot') return send(200, catalog.snapshot(url.searchParams.get('run')));
     if (req.method === 'GET' && /^runs\/[a-f0-9]{24}\/content$/.test(route)) {
       const run = catalog.get(route.split('/')[1]);
@@ -223,8 +263,8 @@ export async function serveDashboard({ root = defaultRoot(), port = 0, token = c
       } catch (error) { return send(400, { error: clean(error.message, 200) }); }
       if (!image) return send(404, { error: 'This run did not keep the image.' });
       // A recorded tool result never changes, so the browser may keep it for the session.
-      res.writeHead(200, { 'Content-Type': image.type, 'Content-Length': image.data.length, 'Cache-Control': 'private, max-age=3600' });
-      return res.end(req.method === 'HEAD' ? undefined : image.data);
+      headers.set('Content-Type', image.type); headers.set('Content-Length', String(image.data.length)); headers.set('Cache-Control', 'private, max-age=3600');
+      return new Response(req.method === 'HEAD' ? null : image.data, { headers });
     }
     // Session-log download (DSH-style): HEAD is the preflight, GET streams the ZIP straight to the browser.
     if ((req.method === 'GET' || req.method === 'HEAD') && /^runs\/[a-f0-9]{24}\/export$/.test(route)) {
@@ -233,37 +273,66 @@ export async function serveDashboard({ root = defaultRoot(), port = 0, token = c
       let prepared;
       try { prepared = sessionExportEntries({ ...loadRunForExport(run.contentSource.runDir), trajectory: publicRun(run) }); }
       catch (error) { return send(409, { error: clean(error.message, 300) }); }
-      res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${sessionLogZipFilename(run.runId)}"` });
-      if (req.method === 'HEAD') { prepared.close(); return res.end(); }
-      downloads.add(prepared);
-      pipeline(Readable.from(zipStream(prepared.entries)), res).catch(() => res.destroy()).finally(() => { prepared.close(); downloads.delete(prepared); });
-      return;
+      headers.set('Content-Type', 'application/zip'); headers.set('Content-Disposition', `attachment; filename="${sessionLogZipFilename(run.runId)}"`);
+      if (req.method === 'HEAD') { prepared.close(); return new Response(null, { headers }); }
+      const source = Readable.from(zipStream(prepared.entries));
+      const download = { close: () => { source.destroy(); prepared.close(); } };
+      downloads.add(download);
+      req.signal.addEventListener('abort', download.close, { once: true });
+      source.once('close', () => { prepared.close(); downloads.delete(download); req.signal.removeEventListener('abort', download.close); });
+      return new Response(Readable.toWeb(source) as unknown as ReadableStream<Uint8Array>, { headers });
     }
     if (req.method === 'GET' && route === 'events') {
       if (clients.size >= 30) return send(429, { error: 'Too many local dashboard connections.' });
-      res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive' });
-      const client = { res, key: url.searchParams.get('run') };
-      clients.add(client); res.write(`data: ${JSON.stringify(catalog.snapshot(client.key))}\n\n`);
-      req.on('close', () => clients.delete(client)); return;
+      headers.set('Content-Type', 'text/event-stream; charset=utf-8'); headers.set('Connection', 'keep-alive');
+      const key = url.searchParams.get('run'), delta = url.searchParams.get('v') === '2';
+      let client: Client;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const close = () => {
+            if (!clients.delete(client)) return;
+            req.signal.removeEventListener('abort', close);
+            try { controller.close(); } catch { /* already cancelled */ }
+            if (![...clients].some(other => other.key === key)) groups.delete(key);
+            if (!clients.size) catalog.idle?.();
+          };
+          client = { key, delta, controller, close };
+          clients.add(client); req.signal.addEventListener('abort', close, { once: true });
+          const snapshot = groups.get(key) ?? catalog.snapshot(key) as Snapshot;
+          groups.set(key, snapshot); controller.enqueue(frame(snapshot));
+          if (req.signal.aborted) close();
+        },
+        cancel() { client.close(); },
+      }, { highWaterMark: 2_000_000, size: chunk => chunk.byteLength });
+      return new Response(stream, { headers });
     }
     if (req.method === 'POST' && /^runs\/[a-f0-9]{24}\/(stop|retry-notification)$/.test(route)) {
-      req.resume(); const [, key, name] = route.split('/');
-      try { catalog.refresh(); return send(200, await action(catalog.get(key), name)); }
+      const [, key, name] = route.split('/');
+      try { refresh(true); return send(200, await action(catalog.get(key), name)); }
       catch (error) { return send(409, { error: clean(error.message, 500) }); }
     }
     return send(405, { error: 'Method not allowed.' });
-  });
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', () => resolve(undefined)); });
-  actualPort = (server.address() as any).port;
+  } });
   const timer = setInterval(() => {
-    try { catalog.refresh(); } catch {}
-    for (const client of clients) {
-      if (client.res.writableLength > 2_000_000) { client.res.destroy(); clients.delete(client); continue; }
-      client.res.write(`data: ${JSON.stringify(catalog.snapshot(client.key))}\n\n`);
+    if (!clients.size) { catalog.idle?.(); return; }
+    try { refresh(true); } catch { return; }
+    for (const [key, previous] of groups) {
+      try {
+        const { snapshot, patch } = snapshotUpdate(previous, catalog.snapshot(key) as Snapshot);
+        groups.set(key, snapshot);
+        const update = patch ? frame(patch, 'patch') : frame(snapshot.at, 'heartbeat');
+        let full: Uint8Array | undefined;
+        for (const client of clients) {
+          if (client.key !== key) continue;
+          if ((client.controller.desiredSize ?? 0) <= 0) { client.close(); continue; }
+          try { client.controller.enqueue(client.delta ? update : full ??= frame(snapshot)); }
+          catch { client.close(); } // One disconnected reader must not make other clients miss a delta.
+        }
+      } catch { /* Keep the stream alive; a transient read is retried on the next tick. */ }
     }
   }, pollMs);
-  return { url: `http://127.0.0.1:${actualPort}/${token}/`, port: actualPort, token,
-    close: async () => { clearInterval(timer); for (const client of clients) client.res.end(); for (const item of downloads) item.close(); server.closeAllConnections?.(); await new Promise(resolve => server.close(resolve)); } };
+  return { url: `http://127.0.0.1:${server.port}/${token}/`, port: server.port, token,
+    close: async () => { clearInterval(timer); for (const client of clients) client.close(); for (const item of downloads) item.close(); catalog.close?.(); pages.clear(); await server.stop(true); } };
 }
 
 export async function healthy(record) {

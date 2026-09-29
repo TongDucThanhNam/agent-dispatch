@@ -11,7 +11,7 @@ async function json<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-export const eventsUrl = (run?: string | null) => `${BASE}events${run ? `?run=${encodeURIComponent(run)}` : ''}`;
+export const eventsUrl = (run?: string | null) => `${BASE}events?v=2${run ? `&run=${encodeURIComponent(run)}` : ''}`;
 
 export const fetchPreviews = (run: string, ids: string[], signal?: AbortSignal) =>
   fetch(`${BASE}runs/${run}/previews?ids=${encodeURIComponent(ids.join(','))}`, { signal })

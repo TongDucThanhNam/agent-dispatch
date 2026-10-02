@@ -13,6 +13,7 @@ import { inspectProject } from '../core/preflight.ts';
 import { registerRun, ensureDashboard, readRun, publicRun, serveHub, defaultRoot } from '../monitor/hub.ts';
 import { exportRunToFile } from '../monitor/session-export.ts';
 import { desktopHandoff } from '../workers/zcode/desktop.ts';
+import { setupMcode, probeMcode, mcodePaths, verifyMcodeSession, MCODE_API } from '../workers/mcode/desktop.ts';
 import { runWatch, recordNight, installSignalCleanup, validateId, validateIsoDeadline, validateNight, HarnessError } from '../idle/watch.ts';
 import { guideText, templateText, detectOrchestrator, ORCHESTRATORS, TOPICS, TEMPLATES } from '../guide/guide.ts';
 import { installSkills } from '../skills/install.ts';
@@ -31,7 +32,7 @@ const C = CLI_NAME;
 const LAUNCH_VALUES = ['worker', 'stage', 'brief', 'project', 'from', 'model', 'effort', 'provider', 'mode', 'notify', 'thread', 'callback-model', 'config'];
 const LAUNCH_ALIASES = { 'prompt-file': 'brief', 'from-discovery': 'from' };
 const REF_ALIASES = { 'run-dir': 'ref' };
-const LAUNCH_USAGE = '--worker zcode|agy|codex|claude --stage discovery|execution --brief FILE [--from REF] [--project DIR] [--model ID] [--effort LEVEL] [--provider ID] [--mode yolo|plan] [--notify auto|codex|none] [--thread UUID]';
+const LAUNCH_USAGE = '--worker zcode|agy|codex|claude|mcode --stage discovery|execution --brief FILE [--from REF] [--project DIR] [--model ID] [--effort LEVEL] [--provider ID] [--mode yolo|plan] [--notify auto|codex|none] [--thread UUID]';
 
 // Run commands accept the ref positionally or through the historical --run-dir option.
 function refOf(opts: Opts, args: string[]) {
@@ -142,7 +143,7 @@ const harness = (error: any) => error instanceof HarnessError
 const IDLE_SUBS = 'watch|record-night|doctor|models|list|availability|submit|status|ticket';
 
 export const COMMANDS: Record<string, Command> = {
-  guide: { usage: 'guide [zcode|agy|codex|claude|idle|monitor|desktop|errors] [--orchestrator claude|codex|generic]', summary: 'Print the operating guide (read once per task).',
+  guide: { usage: 'guide [zcode|agy|codex|claude|mcode|idle|monitor|desktop|errors] [--orchestrator claude|codex|generic]', summary: 'Print the operating guide (read once per task).',
     values: ['orchestrator'], args: [0, 1],
     run: (o, a) => ({ text: guideText(a[0], oneOf(o, 'orchestrator', ORCHESTRATORS)) }) },
   template: { usage: `template ${TEMPLATES.join('|')}`, summary: 'Print a brief template.', args: [1, 1],
@@ -185,9 +186,18 @@ export const COMMANDS: Record<string, Command> = {
       let trajectory = null; try { trajectory = publicRun(readRun({ key: null, runDir }, { observeInactive: true })); } catch {}
       return { data: await labelledAsync('IO_ERROR', () => exportRunToFile(runDir, str(o, 'out') ? path.resolve(str(o, 'out')!) : null, { trajectory })) };
     } },
-  desktop: { usage: 'desktop <ref>', summary: 'ZCode desktop/TUI handoff for a finished run.', values: ['project', 'ref'], aliases: REF_ALIASES, args: [0, 1],
-    run: (o, a) => {
+  desktop: { usage: 'desktop <ref>', summary: 'ZCode or MiniMax desktop handoff for a finished run.', values: ['project', 'ref'], aliases: REF_ALIASES, args: [0, 1],
+    run: async (o, a) => {
       const runDir = refOf(o, a), status = compactStatus(runDir);
+      if (status.workerKind === 'mcode') {
+        if (!status.workerExited) throw new CliError('RUN_ACTIVE', 'Wait for the MiniMax desktop turn to finish.', `${C} wait ${shortRef(status.runId)}`);
+        const config = readJson(path.join(runDir, 'config.json'));
+        const runtime = await labelledAsync('WORKER_UNAVAILABLE', () => probeMcode(config));
+        const value = await runtime.client.request(`${MCODE_API}/session/${status.sessionId}`);
+        labelled('INVALID_CONFIG', () => verifyMcodeSession(config, value.session, status.sessionId));
+        return { data: { sessionId: status.sessionId, workspace: config.project, title: value.session.title,
+          executable: config.mcodeExe, instructions: 'This is already a visible MiniMax Code desktop session. Open the app and select this title/session. Continue from only one client at a time.' } };
+      }
       if (status.workerKind !== 'zcode') throw new CliError('USAGE', 'Desktop handoff is available for ZCode runs only.');
       if (!status.workerExited) throw new CliError('RUN_ACTIVE', 'Wait for the worker to exit before continuing in ZCode.', `${C} wait ${shortRef(status.runId)}`);
       return { data: labelled('INVALID_CONFIG', () => desktopHandoff(readJson(path.join(runDir, 'config.json')), status)) };
@@ -199,10 +209,20 @@ export const COMMANDS: Record<string, Command> = {
       const hub = await labelledAsync('HUB_UNAVAILABLE', () => ensureDashboard());
       return { data: { url: hub.url + (key ? '#run=' + key : ''), ...(runDir ? { ref: shortRef(path.basename(runDir)) } : {}) } };
     } },
-  models: { usage: 'models [--worker zcode|agy|codex|claude]', summary: 'Available or selected models for a worker.', values: ['worker'],
+  models: { usage: 'models [--worker zcode|agy|codex|claude|mcode]', summary: 'Available or selected models for a worker.', values: ['worker'],
     run: async o => ({ data: await models(oneOf(o, 'worker', WORKERS) ?? 'zcode') }) },
   doctor: { usage: 'doctor', summary: 'Check runtimes, workers, hub, installed skills and the current lock.',
     run: async () => ({ data: await doctor() }) },
+  mcode: { usage: 'mcode setup|status [--exe FILE] [--manifest FILE]', summary: 'Connect the installed MiniMax Code desktop bridge; never installs the standalone CLI.', values: ['exe', 'manifest'], args: [1, 1],
+    run: async (o, a) => {
+      const paths = mcodePaths({ ...(str(o, 'exe') ? { mcodeExe: str(o, 'exe') } : {}), ...(str(o, 'manifest') ? { mcodeManifest: str(o, 'manifest') } : {}) });
+      if (a[0] === 'setup') return { data: await labelledAsync('WORKER_UNAVAILABLE', () => setupMcode(paths)) };
+      if (a[0] === 'status') {
+        const runtime = await labelledAsync('WORKER_UNAVAILABLE', () => probeMcode(paths));
+        return { data: { worker: 'mcode', backend: 'desktop', version: runtime.bridge.version, pid: runtime.bridge.pid, connected: true, modelSource: runtime.source, manifest: paths.mcodeManifest } };
+      }
+      throw usageError(`Unknown mcode action "${a[0]}".`, COMMANDS.mcode);
+    } },
   idle: { usage: `idle ${IDLE_SUBS} ...`, summary: 'Explicit IDLE queue tasks (see guide idle).', args: [0, Infinity],
     run: () => {} },
   hub: { usage: 'hub status|restart', summary: 'Shared dashboard process (restart refuses while runs are active).', args: [1, 1],
@@ -211,7 +231,7 @@ export const COMMANDS: Record<string, Command> = {
       if (a[0] === 'restart') return { data: await hubRestart() };
       throw usageError(`Unknown hub action "${a[0]}".`, COMMANDS.hub);
     } },
-  skills: { usage: 'skills install [--target claude|codex|all] [--worker zcode|agy|codex|claude] [--dry-run] [--include-missing] [--force]', summary: 'Replace installed delegate skills with thin CLI pointers (old copies are moved to skill-backups).',
+  skills: { usage: 'skills install [--target claude|codex|all] [--worker zcode|agy|codex|claude|mcode] [--dry-run] [--include-missing] [--force]', summary: 'Replace installed delegate skills with thin CLI pointers (old copies are moved to skill-backups).',
     values: ['target', 'worker'], flags: ['dry-run', 'include-missing', 'force'], args: [1, 1],
     run: (o, a) => {
       if (a[0] !== 'install') throw usageError(`Unknown skills action "${a[0]}".`, COMMANDS.skills);

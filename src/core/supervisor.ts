@@ -12,6 +12,7 @@ import { verifyNative, buildNativeInvocation } from '../workers/zcode/native.ts'
 import { startAgy } from '../workers/agy/adapter.ts';
 import { startCodex } from '../workers/codex/adapter.ts';
 import { startClaude } from '../workers/claude/adapter.ts';
+import { startMcode } from '../workers/mcode/adapter.ts';
 
 export const TERMINAL = new Set(['blocked', 'cancelled', 'worker_failed', 'missing_report', 'ready_for_review', 'complete', 'changes_required']);
 const AI_SDK_WARNING = /^(?:AI SDK Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false\.\r?\n)+/;
@@ -83,8 +84,9 @@ export function publicState(config: any, state: any, readOnly = false) {
     recoveryCommand: `${CLI_NAME} dashboard ${shortRef(config.runId)}` };
 }
 
-// Only used with the ChildProcess created by this supervisor, never a recovered PID.
+// Only used with the worker handle created by this supervisor, never a recovered PID.
 export async function stopOwnedWorker(child: any) {
+  if (typeof child?.stop === 'function') { await child.stop(); return; }
   if (!child || child.exitCode !== null || child.signalCode !== null || !child.pid) return;
   if (process.platform === 'win32') {
     const result = await spawnCaptured(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
@@ -169,6 +171,8 @@ export async function supervise(config: any, deps: SuperviseDeps = {}) {
       if (!config.codexModel || !config.codexProvider) throw new Error('Resolve the Codex model and provider before starting this run.');
     } else if (!deps.spawnWorker && config.workerKind === 'claude') {
       if (!fs.existsSync(config.claudeExe)) throw new Error('Claude executable is missing.');
+    } else if (!deps.spawnWorker && config.workerKind === 'mcode') {
+      if (!fs.existsSync(config.mcodeExe)) throw new Error('MiniMax desktop executable is missing.');
     } else if (!deps.spawnWorker) {
       verifyNative(config);
     }
@@ -198,8 +202,8 @@ export async function supervise(config: any, deps: SuperviseDeps = {}) {
     invocation = !config.workerKind || config.workerKind === 'zcode' ? buildNativeInvocation(config, prompt) : null;
     try {
       if (deps.spawnWorker) child = deps.spawnWorker({ config, prompt, out, err });
-      else if (config.workerKind === 'agy' || config.workerKind === 'codex' || config.workerKind === 'claude') {
-        const start: any = { agy: startAgy, codex: startCodex, claude: startClaude }[config.workerKind];
+      else if (config.workerKind === 'agy' || config.workerKind === 'codex' || config.workerKind === 'claude' || config.workerKind === 'mcode') {
+        const start: any = { agy: startAgy, codex: startCodex, claude: startClaude, mcode: startMcode }[config.workerKind];
         bridge = start(config, { prompt, startedAt: state.startedAt, stderrFd: err,
           onSession: (id: string) => { state.sessionId = id; persist(); },
           onModel: (model: string) => { state.expectedModel = model; saveJson(path.join(config.runDir, 'config.json'), config); persist(); },
@@ -220,7 +224,8 @@ export async function supervise(config: any, deps: SuperviseDeps = {}) {
     saveJson(path.join(config.runDir, 'startup.json'), { url: panel.url, runDir: config.runDir, runnerPid: process.pid, workerPid: state.workerPid,
       workerKind: config.workerKind ?? 'zcode',
       modelVerification: ({ agy: 'explicit AGY --model selection', codex: 'explicit Codex -m selection; verified against the session turn context',
-        claude: 'awaiting Claude system/init resolution; main-session model is then pinned and verified' } as any)[config.workerKind] ?? 'pending runtime evidence' });
+        claude: 'awaiting Claude system/init resolution; main-session model is then pinned and verified',
+        mcode: 'desktop managed Token Plan; session model/variant/effort verified before delivery and after completion' } as any)[config.workerKind] ?? 'pending runtime evidence' });
     const exited = new Promise<any>(resolve => { child.once('error', (error: any) => resolve({ code: null, error })); child.once('close', (code: any, signal: any) => resolve({ code, signal })); });
     const tick = async () => {
       if (polling || state.workerExited || stopPending) return;

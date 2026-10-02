@@ -5,7 +5,7 @@ import { LABELS, type WorkerKind } from '../core/config.ts';
 import { activeRuns } from '../core/runs.ts';
 import { CliError, labelled } from '../protocol/errors.ts';
 
-export const SKILL_NAMES: Record<WorkerKind, string> = { zcode: 'delegate-to-zcode', agy: 'delegate-to-agy', codex: 'delegate-to-codex', claude: 'delegate-to-claude' };
+export const SKILL_NAMES: Record<WorkerKind, string> = { zcode: 'delegate-to-zcode', agy: 'delegate-to-agy', codex: 'delegate-to-codex', claude: 'delegate-to-claude', mcode: 'delegate-to-mcode' };
 export const SKILL_ROOTS = (): Record<'claude' | 'codex', string> => ({ claude: home('.claude', 'skills'), codex: home('.codex', 'skills') });
 export const THIN_MARKER = '<!-- agent-dispatch:thin-skill v1 -->';
 
@@ -14,6 +14,7 @@ const DEFAULT_DESCRIPTIONS: Record<WorkerKind, string> = {
   agy: 'Use when explicitly invoked for AGY to investigate, the orchestrator to plan from that evidence, and AGY to implement, test, self-review, and return a final verified report with a local progress panel.',
   codex: 'Use when explicitly invoked for a separate Codex CLI worker to investigate, the orchestrator to plan from that evidence, and the worker to implement, test, self-review, and return a final verified report with a local progress panel.',
   claude: 'Use when the user requests delegation to a separate Claude Code CLI worker for discovery, implementation, testing, self-review, and a final verified report through agent-dispatch.',
+  mcode: 'Use when the user requests delegation to MiniMax Code Desktop (mcode) for discovery, implementation, testing, self-review, and a verified report through its desktop account and sessions, not the standalone CLI.',
 };
 
 /** `thin` (points at the CLI), `legacy` (bundled scripts), `other`, or `missing`. */

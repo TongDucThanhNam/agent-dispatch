@@ -14,6 +14,7 @@ import { verifyNative } from '../workers/zcode/native.ts';
 import { readAgySelection } from '../workers/agy/adapter.ts';
 import { readCodexSelection } from '../workers/codex/adapter.ts';
 import { readClaudeRuntime } from '../workers/claude/adapter.ts';
+import { probeMcode, resolveMcodeSelection, verifyMcodeSession, MCODE_API } from '../workers/mcode/desktop.ts';
 import { CliError, labelled, labelledAsync } from '../protocol/errors.ts';
 
 // Pins the default Codex selection once so resume and the model/provider check use the same values.
@@ -75,6 +76,14 @@ export async function prepare(raw: any, { checkLock = true } = {}) {
     if (!fs.existsSync(config.claudeExe)) throw new CliError('WORKER_UNAVAILABLE', 'Claude executable is missing.', 'Install Claude Code or set claudeExe in --config.');
     const runtime = await readClaudeRuntime(config.claudeExe);
     if (!runtime.ok) throw new CliError('WORKER_UNAVAILABLE', runtime.error!, 'Claude Code 2.1.259 or later is required; update the CLI.');
+  } else if (config.workerKind === 'mcode') {
+    const runtime = await labelledAsync('WORKER_UNAVAILABLE', () => probeMcode(config), 'Run agent-dispatch mcode setup. No standalone CLI fallback is used.');
+    labelled('MODEL_UNAVAILABLE', () => resolveMcodeSelection(config, runtime));
+    if (config.resumeSessionId) {
+      const value = await labelledAsync('WORKER_UNAVAILABLE', () => runtime.client.request(`${MCODE_API}/session/${config.resumeSessionId}`));
+      labelled('INVALID_CONFIG', () => verifyMcodeSession(config, value.session, config.resumeSessionId));
+      if (value.session.status?.status_type === 1) throw new CliError('RUN_ACTIVE', 'The MiniMax desktop session is already running.');
+    }
   }
   return { config, assignment, discovery };
 }
@@ -137,5 +146,5 @@ export async function resume(previousDir: string, briefFile: string) {
   if (!status.workerExited) throw new CliError('RUN_ACTIVE', 'Cannot resume until the old worker has exited.', `${CLI_NAME} wait ${shortRef(previous.runId)}`);
   if (!status.sessionId) throw new CliError('RUN_NOT_ACTIVE', 'The run has no recorded worker session to resume.', 'Launch a fresh run instead.');
   // A discovery session is not turned into execution (launch --from instead).
-  return launch({ ...previous, runId: undefined, runDir: undefined, promptFile: path.resolve(briefFile), resumeSessionId: status.sessionId, discoveryDrift: null });
+  return launch({ ...previous, runId: undefined, runDir: undefined, mcodeTurnId: undefined, promptFile: path.resolve(briefFile), resumeSessionId: status.sessionId, discoveryDrift: null });
 }

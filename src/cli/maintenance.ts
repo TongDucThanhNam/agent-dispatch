@@ -12,10 +12,20 @@ import { readCodexSelection, EFFORTS as CODEX_EFFORTS } from '../workers/codex/a
 import { readClaudeSelection, readClaudeRuntime, CLAUDE_EFFORTS, CLAUDE_ALIASES } from '../workers/claude/adapter.ts';
 import { CliError, labelled, labelledAsync } from '../protocol/errors.ts';
 import { SKILL_NAMES, SKILL_ROOTS, skillState } from '../skills/install.ts';
+import { probeMcode } from '../workers/mcode/desktop.ts';
 
 export const ZCODE_DEFAULT = (() => { const s = nativeSelection({}); return `${s.expectedProvider}/${s.expectedModel}`; })();
 
 export async function models(worker: WorkerKind) {
+  if (worker === 'mcode') {
+    const runtime = await labelledAsync('WORKER_UNAVAILABLE', () => probeMcode(defaultPaths()), 'Run agent-dispatch mcode setup.');
+    const available = runtime.models.filter(m => m.provider_kind === 'minimax-managed' && m.enabled !== false);
+    const selected = available.find(m => m.selected);
+    return { worker, backend: 'desktop', version: runtime.bridge.version, modelSource: runtime.source,
+      selected: selected ? `${selected.provider_id}/${selected.model_id}` : null, selectedEffort: selected?.thinking?.effort ?? null,
+      models: available.map(m => ({ id: `${m.provider_id}/${m.model_id}`, variant: m.variant, efforts: m.effort_options ?? [] })),
+      note: 'The desktop managed Token Plan route is required. Selection is session-scoped; global desktop settings are not changed.' };
+  }
   if (worker === 'zcode') {
     const ids = labelled('WORKER_UNAVAILABLE', () => modelCatalog(nativePaths()).map(m => m.id), 'Check the ZCode install with: agent-dispatch doctor');
     return { worker, default: ZCODE_DEFAULT, efforts: ['low', 'high', 'max'], models: ids };
@@ -63,6 +73,11 @@ export async function doctor(cwd = process.cwd()) {
     selected: codexSelection.model ? `${codexSelection.provider}/${codexSelection.model}` : null, effort: codexSelection.effort };
   checks.claude = fs.existsSync(paths.claudeExe) ? { ...await readClaudeRuntime(paths.claudeExe), exe: paths.claudeExe }
     : { ok: false, exe: paths.claudeExe, error: 'Claude executable is missing.' };
+  try {
+    const runtime = await probeMcode(paths);
+    checks.mcode = { ok: runtime.source === 'token_plan', backend: 'desktop', exe: paths.mcodeExe, version: runtime.bridge.version,
+      pid: runtime.bridge.pid, modelSource: runtime.source, manifest: paths.mcodeManifest };
+  } catch (error) { checks.mcode = { ok: false, backend: 'desktop', exe: paths.mcodeExe, error: error.message, hint: 'agent-dispatch mcode setup' }; }
   checks.idle = { ok: fs.existsSync(paths.adapter), adapter: paths.adapter };
   checks.hub = await hubState();
   const skills: Record<string, string> = {};

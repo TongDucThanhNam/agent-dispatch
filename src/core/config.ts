@@ -7,15 +7,16 @@ import { CliError } from '../protocol/errors.ts';
 import { clean } from '../monitor/monitor-core.ts';
 import { nativePaths, nativeSelection } from '../workers/zcode/native.ts';
 import { CLAUDE_EFFORTS } from '../workers/claude/adapter.ts';
+import { mcodePaths, isMcodeSession } from '../workers/mcode/desktop.ts';
 
-export type WorkerKind = 'zcode' | 'agy' | 'codex' | 'claude';
-export const WORKERS: WorkerKind[] = ['zcode', 'agy', 'codex', 'claude'];
-export const LABELS: Record<WorkerKind, string> = { zcode: 'ZCode', agy: 'AGY', codex: 'Codex', claude: 'Claude Code' };
+export type WorkerKind = 'zcode' | 'agy' | 'codex' | 'claude' | 'mcode';
+export const WORKERS: WorkerKind[] = ['zcode', 'agy', 'codex', 'claude', 'mcode'];
+export const LABELS: Record<WorkerKind, string> = { zcode: 'ZCode', agy: 'AGY', codex: 'Codex', claude: 'Claude Code', mcode: 'MiniMax Code Desktop' };
 export const workerLabel = (config: { workerKind?: string }) => LABELS[config.workerKind as WorkerKind] ?? 'ZCode';
 
 export const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 export const validSession = (config: { workerKind?: string }, id: unknown) =>
-  config.workerKind === 'agy' || config.workerKind === 'codex' || config.workerKind === 'claude' ? UUID.test(String(id ?? '')) : /^sess_[A-Za-z0-9_-]+$/.test(String(id ?? ''));
+  config.workerKind === 'mcode' ? isMcodeSession(id) : config.workerKind === 'agy' || config.workerKind === 'codex' || config.workerKind === 'claude' ? UUID.test(String(id ?? '')) : /^sess_[A-Za-z0-9_-]+$/.test(String(id ?? ''));
 
 /** Short, stable handle for a run: the random suffix of generated run IDs, otherwise the run ID itself. */
 export const shortRef = (runId: string) => /^run-\d+-([0-9a-f]{8})$/.exec(runId)?.[1] ?? runId;
@@ -38,6 +39,7 @@ export const defaultPaths = () => ({
   codexHome: process.env.CODEX_HOME ?? home('.codex'),
   cliConfig: home('.zcode/cli/config.json'),
   dbPath: home('.zcode/cli/db/db.sqlite'),
+  ...mcodePaths(),
 });
 
 const invalid = (message: string, hint?: string) => new CliError('INVALID_CONFIG', message, hint);
@@ -49,7 +51,7 @@ const invalid = (message: string, hint?: string) => new CliError('INVALID_CONFIG
 export function validateConfig(raw: any): any {
   if (!raw || typeof raw !== 'object') throw invalid('A run configuration object is required.');
   const workerKind = raw.workerKind ?? 'zcode';
-  if (!WORKERS.includes(workerKind)) throw invalid('Invalid worker kind.', 'Use --worker zcode, agy, codex or claude.');
+  if (!WORKERS.includes(workerKind)) throw invalid('Invalid worker kind.', 'Use --worker zcode, agy, codex, claude or mcode.');
   let project: string;
   try { project = fs.realpathSync(path.resolve(raw.project ?? '.')); }
   catch { throw invalid('The project directory does not exist.', 'Pass an existing directory with --project.'); }
@@ -60,7 +62,7 @@ export function validateConfig(raw: any): any {
   if (raw.notify !== false && !UUID.test(raw.threadId ?? ''))
     throw invalid('Use the originating Codex task UUID for threadId.', 'Pass --notify none when no Codex task should be called back (for example under Claude Code), or --thread <Codex task UUID>.');
   if (raw.resumeSessionId && !validSession({ workerKind }, raw.resumeSessionId))
-    throw invalid(`Invalid ${{ agy: 'AGY conversation', codex: 'Codex thread', claude: 'Claude session' }[workerKind] ?? 'ZCode session'} ID.`);
+    throw invalid(`Invalid ${{ agy: 'AGY conversation', codex: 'Codex thread', claude: 'Claude session', mcode: 'MiniMax desktop session' }[workerKind] ?? 'ZCode session'} ID.`);
   const bounded = (name: string, fallback: number, min: number, max: number) => {
     const value = raw[name] ?? fallback;
     if (!Number.isInteger(value) || value < min || value > max) throw invalid(`Invalid ${name}.`);
@@ -70,6 +72,15 @@ export function validateConfig(raw: any): any {
   if (workerKind === 'zcode') {
     try { selection = { ...nativePaths(raw), ...nativeSelection(raw) }; }
     catch (error) { throw invalid(error.message, 'List qualified IDs with: agent-dispatch models --worker zcode'); }
+  }
+  if (workerKind === 'mcode') {
+    const reference = raw.mcodeModel ?? raw.model ?? null;
+    if (reference != null && (typeof reference !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9:._-]*\/[A-Za-z0-9][A-Za-z0-9._/-]{0,100}(?:#[A-Za-z0-9._-]+)?$/.test(reference))) throw invalid('Use a qualified MiniMax desktop provider/model[#variant] ID.');
+    const [model, variant] = reference?.split('#') ?? [];
+    selection = { ...mcodePaths(raw), mcodeModel: model ?? null, mcodeVariant: raw.mcodeVariant ?? variant ?? null,
+      mcodeAgent: raw.mcodeAgent ?? 'mavis', mcodeEffort: raw.mcodeEffort ?? raw.effort ?? null,
+      mcodeTurnId: raw.mcodeTurnId ?? `dispatch-${crypto.randomUUID()}`,
+      expectedProvider: model?.slice(0, model.indexOf('/')) ?? 'pending-selection', expectedModel: model?.slice(model.indexOf('/') + 1) ?? 'pending-selection' };
   }
   const defaults = defaultPaths();
   const config: any = { schemaVersion: 1, workerKind, project, runId, runDir,
@@ -86,6 +97,7 @@ export function validateConfig(raw: any): any {
     cliConfig: path.resolve(raw.cliConfig ?? defaults.cliConfig),
     dbPath: workerKind === 'agy' ? path.join(runDir, 'agy-events.sqlite') : workerKind === 'codex' ? path.join(runDir, 'codex-events.sqlite')
       : workerKind === 'claude' ? path.join(runDir, 'claude-events.sqlite')
+      : workerKind === 'mcode' ? path.join(runDir, 'mcode-events.sqlite')
       : path.resolve(raw.dbPath ?? defaults.dbPath),
     ...(raw.nodeExe ? { nodeExe: path.resolve(raw.nodeExe) } : {}),
     ...(workerKind === 'agy' ? { agyExe: path.resolve(raw.agyExe ?? defaults.agyExe),
@@ -134,6 +146,14 @@ export function validateConfig(raw: any): any {
     if (raw.provider != null && raw.provider !== 'claude') throw invalid('Claude provider routing comes from its own settings and environment.', 'Configure Claude Code normally; do not pass --provider.');
     if (process.platform === 'win32' && /\.(?:cmd|bat|ps1)$/i.test(config.claudeExe)) throw invalid('Use the native claude.exe, not a shell wrapper.');
   }
+  if (workerKind === 'mcode') {
+    if (config.mode !== 'yolo') throw invalid('MiniMax Desktop currently supports --mode yolo only; native plan mode is not silently emulated.');
+    if (!/\.exe$/i.test(config.mcodeExe)) throw invalid('Use MiniMax Code desktop .exe, not a CLI or shell wrapper.');
+    if (raw.provider != null) throw invalid('MiniMax provider routing is owned by the desktop. Use --model provider/model, not --provider.');
+    if (config.mcodeEffort != null && !['default', 'low', 'medium', 'high', 'xhigh', 'max'].includes(config.mcodeEffort)) throw invalid('Invalid MiniMax effort.');
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(config.mcodeAgent) || !/^dispatch-[A-Za-z0-9-]{1,100}$/.test(config.mcodeTurnId)) throw invalid('Invalid MiniMax agent or turn ID.');
+    if (config.mcodeVariant != null && !/^[A-Za-z0-9._-]{0,100}$/.test(config.mcodeVariant)) throw invalid('Invalid MiniMax variant.');
+  }
   for (const field of ['callbackModel', 'expectedModel', 'expectedProvider']) {
     if (workerKind === 'claude' && field === 'expectedModel') continue;
     if (config[field] !== null && !/^[A-Za-z0-9][A-Za-z0-9:._/-]{0,100}$/.test(config[field])) throw invalid(`Invalid ${field}.`);
@@ -141,4 +161,4 @@ export function validateConfig(raw: any): any {
   return config;
 }
 
-export const configuredEffort = (config: any) => config?.zcodeEffort ?? config?.agyEffort ?? config?.codexEffort ?? config?.claudeEffort ?? null;
+export const configuredEffort = (config: any) => config?.zcodeEffort ?? config?.agyEffort ?? config?.codexEffort ?? config?.claudeEffort ?? config?.mcodeEffort ?? null;

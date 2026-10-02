@@ -1,6 +1,6 @@
 # agent-dispatch
 
-A CLI and a stable JSON protocol that let an orchestrating agent (Claude Code, Codex or any shell-capable agent) delegate work to a worker agent (**ZCode**, **AGY**, **Codex CLI** or **Claude Code**) in two stages: **discovery → planning → execution**.
+A CLI and a stable JSON protocol that let an orchestrating agent (Claude Code, Codex or any shell-capable agent) delegate work to a worker agent (**ZCode**, **AGY**, **Codex CLI**, **Claude Code** or **MiniMax Code Desktop**) in two stages: **discovery → planning → execution**.
 
 The behavior lives in this tool. The installed `delegate-to-*` skills are ~1 KB pointers to it, so fixes and changes land here, not in the skills.
 
@@ -159,7 +159,7 @@ The eager-JavaScript measurement includes the entry and its preloaded shared chu
 agent-dispatch skills install --dry-run
 ```
 
-This replaces `~/.claude/skills/delegate-to-{zcode,agy,codex,claude}` and `~/.codex/skills/…` with thin pointers. The old directories are moved, never deleted, to `~/.claude/skill-backups/<date>-agent-dispatch-cli/`. Each skill's trigger description and the Codex `agents/openai.yaml` settings are kept. The previous implementation is archived on the `archive/contract-dispatcher` branch.
+This replaces `~/.claude/skills/delegate-to-{zcode,agy,codex,claude,mcode}` and `~/.codex/skills/…` with thin pointers. The old directories are moved, never deleted, to `~/.claude/skill-backups/<date>-agent-dispatch-cli/`. Each skill's trigger description and the Codex `agents/openai.yaml` settings are kept. The previous implementation is archived on the `archive/contract-dispatcher` branch.
 
 To add only the Claude delegate without changing existing skills:
 
@@ -169,3 +169,19 @@ agent-dispatch guide claude
 ```
 
 The Claude worker requires the native Claude Code CLI ≥ 2.1.259. It uses existing Claude authentication/settings, resolves model aliases at startup and pins the actual model for resumes. Use `--worker claude` in the same discovery/execution flow shown above. `--model` and `--effort` override the worker selection; backend routing remains in Claude's own configuration. No Agent SDK dependency is required.
+
+## MiniMax Code Desktop
+
+The `mcode` worker uses the installed **desktop app**, not the standalone CLI. Windows/Desktop 3.0.74 is the tested baseline. It requires the app's managed Token Plan routing and existing desktop sign-in; it never silently switches to an API-key backend.
+
+```bash
+agent-dispatch mcode setup
+agent-dispatch models --worker mcode
+agent-dispatch skills install --worker mcode --include-missing
+agent-dispatch guide mcode
+agent-dispatch launch --worker mcode --stage discovery --brief .tmp/discovery.md
+```
+
+Setup starts the desktop with its loopback diagnostic bridge, or connects an existing bridge. If the app is open without it, close it normally first; setup never forcibly restarts it. After app restarts, rerun setup. Override install/manifest paths with `MCODE_DESKTOP_EXE` and `MCODE_DESKTOP_MANIFEST` (advanced config: `mcodeExe`, `mcodeManifest`). This version-specific internal transport fails closed on unsupported contracts.
+
+`delegate-to-mcode` is installed for Codex and Claude without replacing other workers' skills. Runs are visible desktop sessions; exact-session resume and `desktop <ref>` keep that continuity. Stop aborts only the dispatched turn, not Electron or another session. Only owned permission requests receive AllowOnce replies; global settings/credentials stay unchanged. `--mode plan` is not supported; discovery uses the existing brief/worktree guard, not a hard read-only sandbox. Promotional/billing eligibility is not inferred from the bridge.

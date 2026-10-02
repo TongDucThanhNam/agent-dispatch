@@ -23,5 +23,7 @@ export { desktopHandoff } from './workers/zcode/desktop.ts';
 export { readAgySelection, buildAgyArgs, createAgyProjection, startAgy } from './workers/agy/adapter.ts';
 export { readCodexSelection, buildCodexArgs, codexEnv, codexError, createCodexProjection, startCodex, locateRollout } from './workers/codex/adapter.ts';
 export { CLAUDE_EFFORTS, CLAUDE_ALIASES, readClaudeSelection, readClaudeRuntime, buildClaudeArgs, claudeEnv, claudeError, createClaudeProjection, startClaude } from './workers/claude/adapter.ts';
+export { mcodePaths, setupMcode, probeMcode, readMcodeBridge, resolveMcodeSelection, verifyMcodeSession, isMcodeSession, mcodeClient } from './workers/mcode/desktop.ts';
+export { createMcodeProjection, startMcode, readMcodeSse } from './workers/mcode/adapter.ts';
 export { guideText, templateText, detectOrchestrator, TOPICS, TEMPLATES } from './guide/guide.ts';
 export { installSkills, skillState, thinSkill, SKILL_NAMES } from './skills/install.ts';

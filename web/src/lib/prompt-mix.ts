@@ -22,7 +22,7 @@ export interface MixPoint {
 
 export interface PromptSlice { key: string; label: string; tokens: number; color: string; hint: string; ids: string[] }
 /** A tool call's result: tokens it added to the context, and how many later requests read them. */
-export interface HeavyResult { id: string; tool: string; request: number; tokens: number; reads: number; shared: number }
+export interface HeavyResult { id: string; tool: string; request: number; tokens: number; reads: number; shared: number; truncatedFrom: number | null }
 
 export interface PromptMix {
   /** Prompt tokens the run processed (Σ prompt). */
@@ -91,7 +91,7 @@ export function analyzePromptMix(events: TrajectoryEvent[], points: MixPoint[], 
       const share = added / tools[j].length;
       for (const tool of tools[j]) {
         add(`tool:${tool.label}`, share * reads, tool.id);
-        heavy.push({ id: tool.id, tool: tool.label, request: p.request, tokens: share, reads, shared: tools[j].length });
+        heavy.push({ id: tool.id, tool: tool.label, request: p.request, tokens: share, reads, shared: tools[j].length, truncatedFrom: tool.truncatedFrom ?? null });
       }
     }
     start = end;

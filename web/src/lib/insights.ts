@@ -292,6 +292,31 @@ export function computeInsights(run: Run, previews: Previews, now: number): Insi
       detail: `Median time to first token ${duration(median)} over ${plural(models.length, 'request')}. Large prompts and cache misses raise it; the focused events are the slowest starts.`,
     });
   }
+  // Decoding: the model writing its output, reasoning included. When it is slow, output length sets the run time.
+  const decoding = events.filter(e => e.kind === 'model' && (e.outputTokens ?? 0) > 0 && spanOf(e, now) != null);
+  if (decoding.length >= 10) {
+    const ttfts = models.map(e => e.ttftMs!).sort((a, b) => a - b), typical = ttfts.length ? ttfts[ttfts.length >> 1] : 0;
+    let decodeMs = 0, reasoningMs = 0, output = 0, reasoning = 0;
+    const spans = decoding.map(e => {
+      const ms = Math.max(0, spanOf(e, now)! - Math.min(spanOf(e, now)!, e.ttftMs ?? typical)), out = e.outputTokens!;
+      // Reasoning decodes like any other output token, so it takes its token share of the request's decode time.
+      const r = Math.min(e.reasoningTokens ?? 0, out);
+      decodeMs += ms; reasoningMs += r ? ms * r / out : 0; output += out; reasoning += r;
+      return { id: e.id, ms };
+    });
+    const perSecond = output / Math.max(1, decodeMs / 1000), share = decodeMs / Math.max(1, wallMs);
+    if (share >= 0.4) {
+      add({
+        key: 'decode', severity: share >= 0.6 ? 'medium' : 'low', area: 'Time',
+        ids: spans.sort((a, b) => b.ms - a.ms).slice(0, 5).map(s => s.id),
+        title: `Writing output took ${Math.round(share * 100)}% of the run, at ${Math.round(perSecond)} tokens/s`,
+        detail: `${num(output)} output tokens took about ${duration(decodeMs)}`
+          + (reasoning ? `: ${num(reasoning)} reasoning (~${duration(reasoningMs)}) and ${num(output - reasoning)} replies and tool-call arguments (~${duration(decodeMs - reasoningMs)})` : '')
+          + (decodeMs - (totals.get('decode') ?? 0) >= wallMs * 0.05 ? `; ${duration(decodeMs - (totals.get('decode') ?? 0))} of it ran alongside background commands, which the time breakdown counts under the tools` : '')
+          + `. At this speed every 1,000 output tokens cost ${duration(1000 / perSecond * 1000)}, so the length of what the model writes, its reasoning included, sets the run time more than the size of its context. The focused requests wrote the longest.`,
+      });
+    }
+  }
   const idle = gaps.filter(g => g.to - g.from >= 180_000);
   if (idle.length) {
     const longest = Math.max(...idle.map(g => g.to - g.from));
@@ -304,15 +329,26 @@ export function computeInsights(run: Run, previews: Previews, now: number): Insi
 
   // ── Context ────────────────────────────────────────────────────────────────────────────────────
   const context: ContextPoint[] = [];
-  let compacted = false;
+  // A compaction starts a new context at the first request whose prompt shrank. Workers may record it a request
+  // late (Codex writes it once the compacted turn completes), so a prompt that falls by more than half also starts
+  // one, and a compaction recorded right after that drop is the same compaction.
+  let compacted = false, flaggedByRecord = -1;
   for (const event of events) {
-    if (event.kind === 'compaction') { compacted = true; continue; }
+    if (event.kind === 'compaction') {
+      const last = context.length - 1;
+      if (!(last >= 0 && context[last].compactedBefore && flaggedByRecord !== last)) compacted = true;
+      continue;
+    }
     if (event.kind !== 'model' || event.inputTokens == null) continue;
     const cached = event.cacheReadTokens ?? 0, input = event.inputTokens;
     // Some workers count cached tokens inside input_tokens, others separately.
     const fresh = cached > input ? input : input - cached;
+    const before = context.at(-1), dropped = before != null && fresh + cached < (before.fresh + before.cached) * 0.5;
+    // A record that came early, ahead of a request that did not shrink, belongs to the drop.
+    if (dropped && !compacted && flaggedByRecord === context.length - 1 && before) before.compactedBefore = false;
+    if (compacted) flaggedByRecord = context.length;
     context.push({ id: event.id, request: event.request ?? context.length + 1, at: event.startedAt, endedAt: event.endedAt ?? null, ttftMs: event.ttftMs ?? null,
-      fresh, cached, output: event.outputTokens ?? 0, reasoning: event.reasoningTokens ?? null, compactedBefore: compacted });
+      fresh, cached, output: event.outputTokens ?? 0, reasoning: event.reasoningTokens ?? null, compactedBefore: compacted || dropped });
     compacted = false;
   }
   const compactions = events.filter(e => e.kind === 'compaction');
@@ -356,12 +392,25 @@ export function computeInsights(run: Run, previews: Previews, now: number): Insi
     }
     const heaviestTool = mix.slices.find(s => s.key.startsWith('tool:') && s.key !== 'tool:*');
     if (heaviestTool && heaviestTool.tokens >= mix.total * 0.35) {
+      const own = mix.slices.filter(s => s.key === 'reasoning' || s.key === 'output').reduce((n, s) => n + s.tokens, 0);
       add({
-        key: 'tool-share', severity: 'low', area: 'Context', ids: heaviestTool.ids,
+        key: 'tool-share', severity: heaviestTool.tokens >= mix.total * 0.5 ? 'medium' : 'low', area: 'Context', ids: heaviestTool.ids,
         title: `${heaviestTool.label} results are ${Math.round(heaviestTool.tokens / mix.total * 100)}% of all prompt tokens`,
-        detail: `${num(heaviestTool.tokens)} prompt tokens re-read results this tool returned, more than the model's own reasoning and replies. Shrinking those results moves the total more than lowering effort.`,
+        detail: `${num(heaviestTool.tokens)} prompt tokens re-read results this tool returned`
+          + (own ? `, ${(heaviestTool.tokens / own).toFixed(1)}× what the model's own reasoning and replies cost` : '')
+          + '. Shrinking those results moves the total more than lowering effort.',
       });
     }
+  }
+  const shortened = events.filter(e => e.kind === 'tool' && (e.truncatedFrom ?? 0) > 0);
+  if (shortened.length) {
+    const asked = shortened.reduce((n, e) => n + e.truncatedFrom!, 0), largest = Math.max(...shortened.map(e => e.truncatedFrom!));
+    add({
+      key: 'truncated-output', severity: shortened.length >= 5 ? 'medium' : 'low', area: 'Context', ids: shortened.map(e => e.id),
+      title: `${plural(shortened.length, 'tool output')} cut short by the harness`,
+      detail: `They held ${num(asked)} tokens in total (the largest ${num(largest)}); the model saw only what fit under the cap.`
+        + ' A cut output still enters the context at full cap and is re-read like any other, while the rest is lost: a narrower command (a path, a pattern, a line range) returns less and loses nothing.',
+    });
   }
   const cacheBreaks = findCacheBreaks(mixPoints);
   if (cacheBreaks && cacheBreaks.breaks.length && cacheBreaks.missed >= 10_000) {

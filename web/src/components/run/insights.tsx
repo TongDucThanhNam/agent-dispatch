@@ -221,6 +221,9 @@ function InputMix({ mix, previews, onFocus, onSelect }: {
                     <span className="font-mono text-[11.5px]">{result.tool}</span>
                     <span className="text-muted-foreground"> · #{result.request}{preview ? ` · ${preview}` : ''}</span>
                   </span>
+                  {result.truncatedFrom != null && (
+                    <span className="relative shrink-0 text-[10.5px] text-destructive tabular" title="The harness cut this output; the model saw only the head">cut from {num(result.truncatedFrom)}</span>
+                  )}
                   <span className="relative shrink-0 text-[11px] text-muted-foreground tabular" title={result.shared > 1 ? `Shared evenly by ${result.shared} calls in this step` : undefined}>
                     {result.shared > 1 ? '≈' : ''}{num(result.tokens)} × {full(result.reads)}
                   </span>

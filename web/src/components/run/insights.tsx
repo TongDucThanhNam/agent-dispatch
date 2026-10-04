@@ -5,6 +5,7 @@ import {
 import { ArrowDown, ArrowUp, CircleCheck, Crosshair, Info, Loader2, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { KindChip } from '@/components/kind-chip';
 import { Button } from '@/components/ui/button';
+import type { Carry } from '@/lib/carry';
 import { duration, full, num } from '@/lib/format';
 import { computeInsights, eventMs, needsPreview, type ContextPoint, type Finding, type Severity } from '@/lib/insights';
 import { eventName, isFailed } from '@/lib/status';
@@ -12,6 +13,7 @@ import type { EventFocus, Run, ToolStat } from '@/lib/types';
 import { usePreviewVersion, type PreviewStore } from '@/lib/use-previews';
 import { useNow } from '@/lib/use-snapshot';
 import { cn } from '@/lib/utils';
+import { ReasoningCarry } from './carry';
 import { Heading } from './parts';
 
 type OnFocus = (focus: EventFocus | null) => void;
@@ -36,7 +38,7 @@ export function InsightsPanel({ run, previews, onFocus, onSelect }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const insights = useMemo(() => computeInsights(run, previews, now), [run, previews, version, tick]);
   const focus = (label: string, ids: string[]) => { if (ids.length === 1) onSelect(ids[0]); else if (ids.length) onFocus({ label, ids: new Set(ids) }); };
-  const { findings, time, errors, repeats, slowest, context, coverage, wallMs } = insights;
+  const { findings, time, errors, repeats, slowest, context, carry, coverage, wallMs } = insights;
   const reading = coverage.loaded < coverage.total;
 
   if (!events.length) {
@@ -158,7 +160,8 @@ export function InsightsPanel({ run, previews, onFocus, onSelect }: {
         </>
       )}
 
-      {context.length > 1 && <ContextGrowth points={context} onSelect={onSelect} />}
+      {context.length > 1 && <ContextGrowth points={context} carry={carry} onSelect={onSelect} />}
+      {carry && carry.generated > 0 && <ReasoningCarry carry={carry} onSelect={onSelect} />}
 
       {(run.trajectory.stats?.tools?.length ?? 0) > 0 && (
         <>
@@ -196,10 +199,16 @@ function FindingCard({ finding, onShow }: { finding: Finding; onShow: () => void
   );
 }
 
-/** Prompt size per request, cached vs new, with compactions marked. Hover to read, click to open. */
-function ContextGrowth({ points, onSelect }: { points: ContextPoint[]; onSelect: (id: string) => void }) {
+/**
+ * Prompt size per request, cached vs new, with compactions marked. The model's own earlier reasoning (or output) still
+ * in the prompt is split out of the cached part, where it normally sits. Hover to read, click to open.
+ */
+function ContextGrowth({ points, carry, onSelect }: { points: ContextPoint[]; carry: Carry | null; onSelect: (id: string) => void }) {
   const [hover, setHover] = useState<number | null>(null);
   const n = points.length, max = Math.max(1, ...points.map(p => p.fresh + p.cached));
+  // analyzeCarry keeps one point per context point, in order.
+  const carried = (i: number) => carry?.points[i]?.carried ?? 0;
+  const word = carry?.basis === 'output' ? 'output' : 'reasoning';
   const compactions = points.filter(p => p.compactedBefore).length;
   const shown = hover != null ? points[hover] : null;
   const gap = n > 120 ? 0 : 0.15;
@@ -213,11 +222,13 @@ function ContextGrowth({ points, onSelect }: { points: ContextPoint[]; onSelect:
           onMouseLeave={() => setHover(null)} onClick={() => { if (hover != null) onSelect(points[hover].id); }}>
           {hover != null && <rect x={hover} width={1} y={0} height={100} fill="var(--foreground)" opacity={0.07} />}
           {points.map((p, i) => {
-            const cached = p.cached / max * 100, fresh = p.fresh / max * 100;
+            const prompt = p.fresh + p.cached, own = Math.min(carried(i), prompt), rest = Math.max(0, p.cached - own);
+            const ownH = own / max * 100, cached = rest / max * 100, fresh = (prompt - own - rest) / max * 100;
             return (
               <g key={p.id}>
-                <rect x={i + gap} width={1 - gap * 2} y={100 - cached} height={cached} fill="color-mix(in oklch, var(--kind-model) 38%, transparent)" />
-                <rect x={i + gap} width={1 - gap * 2} y={100 - cached - fresh} height={fresh} fill="var(--kind-model)" />
+                {ownH > 0 && <rect x={i + gap} width={1 - gap * 2} y={100 - ownH} height={ownH} fill="var(--kind-reasoning)" />}
+                <rect x={i + gap} width={1 - gap * 2} y={100 - ownH - cached} height={cached} fill="color-mix(in oklch, var(--kind-model) 38%, transparent)" />
+                <rect x={i + gap} width={1 - gap * 2} y={100 - ownH - cached - fresh} height={fresh} fill="var(--kind-model)" />
               </g>
             );
           })}
@@ -229,12 +240,14 @@ function ContextGrowth({ points, onSelect }: { points: ContextPoint[]; onSelect:
           {shown ? (
             <span className="truncate">
               <span className="font-medium text-foreground">Request #{shown.request}</span> · {full(shown.cached)} cached + {full(shown.fresh)} new · {full(shown.output)} out
+              {carried(hover!) > 0 && <> · {full(carried(hover!))} earlier {word}</>}
               {shown.compactedBefore && <span className="text-kind-compaction"> · after compaction</span>}
             </span>
           ) : (
             <>
               <span className="flex items-center gap-1"><i className="size-2 rounded-[2px] bg-kind-model" />new</span>
               <span className="flex items-center gap-1"><i className="size-2 rounded-[2px] bg-kind-model/40" />cached</span>
+              {carry && carry.reread > 0 && <span className="flex items-center gap-1"><i className="size-2 rounded-[2px] bg-kind-reasoning" />earlier {word}</span>}
               {compactions > 0 && <span className="flex items-center gap-1"><i className="h-2.5 w-0 border-l border-dashed border-kind-compaction" />compaction</span>}
               <span className="ml-auto">#{points[0].request} → #{points.at(-1)!.request}</span>
             </>

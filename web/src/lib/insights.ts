@@ -2,6 +2,7 @@
 // calls are redundant, and how the context grew. Computed in the browser from the trajectory and the
 // one-line previews (the only content read), so it works against any hub version.
 
+import { analyzeCarry, costliest, type Carry } from './carry';
 import { duration, full, num } from './format';
 import { isFailed, isRunning } from './status';
 import { parseToolError } from './tool-content';
@@ -24,7 +25,7 @@ export interface TimeSlice { key: string; label: string; ms: number; color: stri
 export interface ErrorVariant { text: string; ids: string[] }
 export interface ErrorGroup { key: string; tool: string; title: string; ids: string[]; variants: ErrorVariant[] }
 export interface RepeatGroup { key: string; tool: string; text: string; ids: string[]; failed: number; ms: number }
-export interface ContextPoint { id: string; request: number; at: number; fresh: number; cached: number; output: number; compactedBefore: boolean }
+export interface ContextPoint { id: string; request: number; at: number; fresh: number; cached: number; output: number; reasoning: number | null; compactedBefore: boolean }
 export interface Gap { from: number; to: number; nextId: string | null }
 
 export interface Insights {
@@ -35,6 +36,8 @@ export interface Insights {
   repeats: RepeatGroup[];
   slowest: TrajectoryEvent[];
   context: ContextPoint[];
+  /** How the model's own reasoning (or output) is read again by later prompts. */
+  carry: Carry | null;
   /** Previews the diagnostics need (tool calls, failures) against those loaded so far. */
   coverage: { loaded: number; total: number };
 }
@@ -277,7 +280,8 @@ export function computeInsights(run: Run, previews: Previews, now: number): Insi
     const cached = event.cacheReadTokens ?? 0, input = event.inputTokens;
     // Some workers count cached tokens inside input_tokens, others separately.
     const fresh = cached > input ? input : input - cached;
-    context.push({ id: event.id, request: event.request ?? context.length + 1, at: event.startedAt, fresh, cached, output: event.outputTokens ?? 0, compactedBefore: compacted });
+    context.push({ id: event.id, request: event.request ?? context.length + 1, at: event.startedAt, fresh, cached, output: event.outputTokens ?? 0,
+      reasoning: event.reasoningTokens ?? null, compactedBefore: compacted });
     compacted = false;
   }
   const compactions = events.filter(e => e.kind === 'compaction');
@@ -287,6 +291,23 @@ export function computeInsights(run: Run, previews: Previews, now: number): Insi
       title: `Context compacted ${compactions.length}×`,
       detail: `Peak prompt ${num(stats.peakInputTokens)} tokens. Each compaction drops detail the agent may have to re-read; large tool outputs are the usual cause.`,
     });
+  }
+  const carry = analyzeCarry(context.map(p => ({ ...p, prompt: p.fresh + p.cached })));
+  if (carry && carry.generated > 0 && carry.points.length >= 5) {
+    const share = carry.reread / Math.max(1, carry.prompt), times = carry.reread / carry.generated;
+    const what = carry.basis === 'reasoning' ? 'Reasoning' : 'Model output';
+    if (share >= 0.1 && times >= 5) {
+      const top = costliest(carry, 1)[0];
+      add({
+        key: 'carry', severity: carry.retention?.verdict === 'dropped' ? 'info' : share >= 0.25 ? 'medium' : 'low', area: 'Context',
+        ids: costliest(carry).map(p => p.id),
+        title: `${what} re-read ${Math.round(times)}× in later prompts`,
+        detail: `${num(carry.generated)} ${carry.basis === 'reasoning' ? 'reasoning' : 'output'} tokens stayed in context; later prompts read them again for ${num(carry.reread)} tokens in total, ${Math.round(share * 100)}% of all prompt tokens.`
+          + (top ? ` Early, long ${carry.basis === 'reasoning' ? 'reasoning' : 'output'} costs the most: request #${top.request} generated ${num(top.generated)} that ${plural(top.rereads, 'later request')} read again.` : '')
+          + (carry.atCompaction ? ` At the first compaction it filled ${Math.round(carry.atCompaction.carried / Math.max(1, carry.atCompaction.prompt) * 100)}% of the prompt.` : '')
+          + (carry.retention?.verdict === 'dropped' ? ' Prompts grew by less than the reasoning produced, so this provider appears to drop it: an upper bound.' : ''),
+      });
+    }
   }
   if (stats.cacheHitRate != null && (stats.requests ?? 0) >= 5 && stats.cacheHitRate < 50) {
     add({
@@ -333,7 +354,7 @@ export function computeInsights(run: Run, previews: Previews, now: number): Insi
   const wanted = events.filter(needsPreview);
   const coverage = { loaded: wanted.filter(e => previews?.get(e.id)).length, total: wanted.length };
 
-  return { wallMs, time, findings, errors, repeats, slowest, context, coverage };
+  return { wallMs, time, findings, errors, repeats, slowest, context, carry, coverage };
 }
 
 export const eventMs = spanOf;

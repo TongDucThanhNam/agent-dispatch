@@ -45,7 +45,7 @@ function records(config) {
     partial({ type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: JSON.stringify(tool.input) } }),
     partial({ type: 'content_block_stop', index: 2 }), assistant('msg_1', [tool], { ...first, output_tokens: 10 }),
     assistant('msg_1', [thinking, text, tool], { ...first, output_tokens: 10 }),
-    partial({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 12 } }), partial({ type: 'message_stop' }),
+    partial({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 12, output_tokens_details: { thinking_tokens: 4 } } }), partial({ type: 'message_stop' }),
     { type: 'user', session_id: sid, parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 'tool_1', content: 'PRIVATE_RESULT' }] } },
     assistant('msg_2', [{ type: 'text', text: 'Final reply.' }], { input_tokens: 9, output_tokens: 3 },
       { message: { id: 'msg_2', model: MODEL, content: [{ type: 'text', text: 'Final reply.' }], usage: { input_tokens: 9, output_tokens: 3 }, stop_reason: 'end_turn' } }),
@@ -107,6 +107,9 @@ test('projection deduplicates partial/full blocks and cumulative usage while kee
     expect(telemetry.usage).toMatchObject({ modelCalls: 2, inputTokens: 164, outputTokens: 15, cacheReadTokens: 50 });
     expect(telemetry.tools).toHaveLength(1); expect(telemetry.tools[0].status).toBe('completed');
     expect(telemetry.trajectory.requests).toBe(2); expect(telemetry.trajectory.toolCalls).toBe(1);
+    const reasoning = Object.fromEntries(telemetry.trajectory.events.filter(e => e.kind === 'model').map(e => [e.id, e.reasoningTokens]));
+    expect(reasoning).toEqual({ 'request:claude-msg_1': 4, 'request:claude-msg_2': null });
+    expect(telemetry.trajectory.stats.reasoningTokens).toBe(4);
     for (const secret of ['PRIVATE_BRIEF', 'PRIVATE_REASONING', 'PRIVATE_COMMAND', 'PRIVATE_RESULT', 'Hello']) expect(JSON.stringify(telemetry)).not.toContain(secret);
     const content = readEventContent(config.dbPath, { ...query, eventId: 'request:claude-msg_1', workerLabel: 'Claude Code' });
     expect(content.sections.find(x => x.field === 'text')?.text).toBe('Hello 🙂');

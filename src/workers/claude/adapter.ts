@@ -92,7 +92,8 @@ export function createClaudeProjection(config, { prompt, startedAt = Date.now(),
   const putUsage = db.prepare(`INSERT INTO model_usage VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
     status=excluded.status,completed_at=excluded.completed_at,input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,
     cache_read_input_tokens=excluded.cache_read_input_tokens,cache_creation_input_tokens=excluded.cache_creation_input_tokens,
-    first_token_at=excluded.first_token_at,duration_ms=excluded.duration_ms,finish_reason=excluded.finish_reason,tool_call_count=excluded.tool_call_count`);
+    reasoning_tokens=excluded.reasoning_tokens,first_token_at=excluded.first_token_at,duration_ms=excluded.duration_ms,
+    finish_reason=excluded.finish_reason,tool_call_count=excluded.tool_call_count`);
   const requests = new Map<string, any>(), active = new Map<string, any>(), calls = new Map<string, any>();
   const sessionIds = new Set<string>(), nextStart = new Map<string, number>();
   let sessionId: any = null, resolvedModel: any = null, terminal: any = null, lastError: any = null, closed = false, sequence = 0;
@@ -142,6 +143,9 @@ export function createClaudeProjection(config, { prompt, startedAt = Date.now(),
     }
     active.set(session, req);
     for (const [key, value] of Object.entries(message.usage ?? {})) if (finite(value) != null) req.usage[key] = Math.max(req.usage[key] ?? 0, value as number);
+    // Thinking is billed inside output_tokens; the breakdown, when the API returns it, is the only separate count.
+    const thinking = finite(message.usage?.output_tokens_details?.thinking_tokens);
+    if (thinking != null) req.usage.thinking_tokens = Math.max(req.usage.thinking_tokens ?? 0, thinking);
     if (message.stop_reason) req.finish = message.stop_reason;
     return req;
   }
@@ -151,7 +155,7 @@ export function createClaudeProjection(config, { prompt, startedAt = Date.now(),
     // Claude's cache tokens are separate; store the complete prompt size like ZCode.
     const input = known ? (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) : null;
     putUsage.run(req.id, req.id, 0, req.status, 'claude', req.model, req.start, req.end, input, finite(u.output_tokens), finite(u.cache_read_input_tokens), 0,
-      null, null, req.session, req.id, null, req.firstToken, req.end != null ? req.end - req.start : null, finite(u.cache_creation_input_tokens), req.finish,
+      null, null, req.session, req.id, finite(u.thinking_tokens), req.firstToken, req.end != null ? req.end - req.start : null, finite(u.cache_creation_input_tokens), req.finish,
       [...req.blocks.values()].filter(block => block.type === 'tool_use' || block.type === 'server_tool_use').length);
     touch(req.session, at);
   }

@@ -132,7 +132,7 @@
     --kind-tool: oklch(0.55 0.11 175);
     --kind-compaction: oklch(0.58 0.18 350);
     --kind-retry: oklch(0.6 0.17 45);
-    --kind-reasoning: oklch(0.62 0.14 120);
+    --kind-reasoning: oklch(0.62 0.14 95);
     --scrollbar: oklch(0.34 0.027 95 / 22%);
     /* Syntax colours for Shiki's CSS-variables theme (src/lib/highlight.ts). */
     --code-foreground: var(--foreground);
@@ -216,7 +216,7 @@
     --kind-tool: oklch(0.78 0.11 172);
     --kind-compaction: oklch(0.75 0.14 350);
     --kind-retry: oklch(0.76 0.14 50);
-    --kind-reasoning: oklch(0.66 0.13 120);
+    --kind-reasoning: oklch(0.64 0.13 95);
     --scrollbar: oklch(1 0 0 / 14%);
     --code-foreground: var(--foreground);
     --code-background: transparent;

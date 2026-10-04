@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, CircleCheck, Crosshair, Info, Loader2, OctagonAlert
 import { KindChip } from '@/components/kind-chip';
 import { Button } from '@/components/ui/button';
 import type { Carry } from '@/lib/carry';
+import type { CacheBreaks, PromptMix } from '@/lib/prompt-mix';
 import { duration, full, num } from '@/lib/format';
 import { computeInsights, eventMs, needsPreview, type ContextPoint, type Finding, type Severity } from '@/lib/insights';
 import { eventName, isFailed } from '@/lib/status';
@@ -38,7 +39,7 @@ export function InsightsPanel({ run, previews, onFocus, onSelect }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const insights = useMemo(() => computeInsights(run, previews, now), [run, previews, version, tick]);
   const focus = (label: string, ids: string[]) => { if (ids.length === 1) onSelect(ids[0]); else if (ids.length) onFocus({ label, ids: new Set(ids) }); };
-  const { findings, time, errors, repeats, slowest, context, carry, coverage, wallMs } = insights;
+  const { findings, time, errors, repeats, slowest, context, carry, mix, cacheBreaks, coverage, wallMs } = insights;
   const reading = coverage.loaded < coverage.total;
 
   if (!events.length) {
@@ -71,26 +72,7 @@ export function InsightsPanel({ run, previews, onFocus, onSelect }: {
       {time.length > 0 && wallMs > 0 && (
         <>
           <Heading aside={`${duration(wallMs)} wall time`}>Where the time went</Heading>
-          <div className="flex h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-            {time.map(slice => <i key={slice.key} className="h-full border-r border-background/60 last:border-0" style={{ width: `${slice.ms / wallMs * 100}%`, background: slice.color }} />)}
-          </div>
-          <ul className="mt-1.5">
-            {time.map(slice => {
-              const share = slice.ms / wallMs * 100, clickable = slice.ids.length > 0;
-              return (
-                <li key={slice.key}>
-                  <button type="button" disabled={!clickable} onClick={() => focus(slice.key.startsWith('tool:') ? `${slice.label} calls` : slice.label, slice.ids)}
-                    title={slice.hint} className="group flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] enabled:hover:bg-accent/60">
-                    <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: slice.color }} />
-                    <span className={cn('min-w-0 flex-1 truncate', slice.key.startsWith('tool:') && slice.key !== 'tool:*' && 'font-mono text-[11.5px]')}>{slice.label}</span>
-                    {clickable && <Crosshair className="size-3 text-muted-foreground opacity-0 group-hover:opacity-100" aria-hidden />}
-                    <span className="w-16 text-right text-muted-foreground tabular">{duration(slice.ms)}</span>
-                    <span className="w-9 text-right tabular">{share < 1 ? '<1' : Math.round(share)}%</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <Breakdown slices={time} value={slice => slice.ms} format={duration} onFocus={slice => focus(slice.key.startsWith('tool:') ? `${slice.label} calls` : slice.label, slice.ids)} />
         </>
       )}
 
@@ -130,6 +112,9 @@ export function InsightsPanel({ run, previews, onFocus, onSelect }: {
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{group.tool}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-[11.5px]" title={group.text}>{group.text}</span>
                 {group.failed > 0 && <span className="shrink-0 text-[10.5px] text-destructive tabular">{group.failed} failed</span>}
+                {group.tokens != null && group.tokens >= 1000 && (
+                  <span className="shrink-0 text-[10.5px] text-muted-foreground tabular" title="Prompt tokens the repeats put through later requests">{num(group.tokens)} tok</span>
+                )}
                 <span className="shrink-0 text-[11px] font-medium tabular">×{group.ids.length}</span>
               </button>
             ))}
@@ -160,7 +145,8 @@ export function InsightsPanel({ run, previews, onFocus, onSelect }: {
         </>
       )}
 
-      {context.length > 1 && <ContextGrowth points={context} carry={carry} onSelect={onSelect} />}
+      {context.length > 1 && <ContextGrowth points={context} carry={carry} breaks={cacheBreaks} onSelect={onSelect} />}
+      {mix && mix.total > 0 && <InputMix mix={mix} previews={previews} onFocus={focus} onSelect={onSelect} />}
       {carry && carry.generated > 0 && <ReasoningCarry carry={carry} onSelect={onSelect} />}
 
       {(run.trajectory.stats?.tools?.length ?? 0) > 0 && (
@@ -173,6 +159,83 @@ export function InsightsPanel({ run, previews, onFocus, onSelect }: {
         Computed in the browser from the trajectory and call previews. Click a row to show its events in the trajectory.
       </p>
     </div>
+  );
+}
+
+interface Slice { key: string; label: string; color: string; hint: string; ids: string[] }
+
+/** A whole split into labelled slices: a stacked bar, then one row per slice. Rows with events focus them. */
+function Breakdown<T extends Slice>({ slices, value, format, onFocus }: {
+  slices: T[]; value: (slice: T) => number; format: (value: number) => string; onFocus: (slice: T) => void;
+}) {
+  const total = slices.reduce((n, slice) => n + value(slice), 0) || 1;
+  return (
+    <>
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+        {slices.map(slice => <i key={slice.key} className="h-full border-r border-background/60 last:border-0" style={{ width: `${value(slice) / total * 100}%`, background: slice.color }} />)}
+      </div>
+      <ul className="mt-1.5">
+        {slices.map(slice => {
+          const share = value(slice) / total * 100, clickable = slice.ids.length > 0;
+          return (
+            <li key={slice.key}>
+              <button type="button" disabled={!clickable} onClick={() => onFocus(slice)}
+                title={slice.hint} className="group flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] enabled:hover:bg-accent/60">
+                <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: slice.color }} />
+                <span className={cn('min-w-0 flex-1 truncate', slice.key.startsWith('tool:') && slice.key !== 'tool:*' && 'font-mono text-[11.5px]')}>{slice.label}</span>
+                {clickable && <Crosshair className="size-3 text-muted-foreground opacity-0 group-hover:opacity-100" aria-hidden />}
+                <span className="w-16 text-right text-muted-foreground tabular">{format(value(slice))}</span>
+                <span className="w-9 text-right tabular">{share < 1 ? '<1' : Math.round(share)}%</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+/** Σ prompt tokens by source, then the tool results that cost the most re-reads. */
+function InputMix({ mix, previews, onFocus, onSelect }: {
+  mix: PromptMix; previews: PreviewStore | null; onFocus: (label: string, ids: string[]) => void; onSelect: (id: string) => void;
+}) {
+  const growth = mix.first ? mix.last / mix.first : 0, max = mix.heaviest[0] ? mix.heaviest[0].tokens * mix.heaviest[0].reads : 1;
+  return (
+    <>
+      <Heading aside={`${num(mix.total)} prompt tokens${growth >= 1.5 ? ` · last prompt ${growth.toFixed(1)}× the first` : ''}`}>Where the input went</Heading>
+      <Breakdown slices={mix.slices} value={slice => slice.tokens} format={num}
+        onFocus={slice => onFocus(slice.key.startsWith('tool:') && slice.key !== 'tool:*' ? `${slice.label} results` : slice.label, slice.ids)} />
+      {mix.heaviest.length > 0 && (
+        <>
+          <div className="mt-3 mb-1 flex items-baseline gap-2 text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground">Heaviest tool results</span><span>tokens added × later requests that read them</span>
+          </div>
+          <div className="space-y-px">
+            {mix.heaviest.map(result => {
+              const preview = previews?.get(result.id)?.text;
+              return (
+                <button key={result.id} type="button" onClick={() => onSelect(result.id)}
+                  className="relative flex w-full items-center gap-2 overflow-hidden rounded-md px-1.5 py-1 text-left text-[12px] hover:bg-accent/60">
+                  <span className="absolute inset-y-0 left-0 bg-foreground/[0.045]" style={{ width: `${result.tokens * result.reads / max * 100}%` }} aria-hidden />
+                  <span className="relative min-w-0 flex-1 truncate">
+                    <span className="font-mono text-[11.5px]">{result.tool}</span>
+                    <span className="text-muted-foreground"> · #{result.request}{preview ? ` · ${preview}` : ''}</span>
+                  </span>
+                  <span className="relative shrink-0 text-[11px] text-muted-foreground tabular" title={result.shared > 1 ? `Shared evenly by ${result.shared} calls in this step` : undefined}>
+                    {result.shared > 1 ? '≈' : ''}{num(result.tokens)} × {full(result.reads)}
+                  </span>
+                  <span className="relative w-12 shrink-0 text-right font-medium tabular">{num(result.tokens * result.reads)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        Each token counts once per request that read it. Tool results are inferred from prompt growth between requests; calls in one step share it evenly.
+        {mix.pruned >= mix.total * 0.01 && ` The harness also removed context that would have been read ${num(mix.pruned)} more times (cleared results or dropped reasoning).`}
+      </p>
+    </>
   );
 }
 
@@ -203,12 +266,13 @@ function FindingCard({ finding, onShow }: { finding: Finding; onShow: () => void
  * Prompt size per request, cached vs new, with compactions marked. The model's own earlier reasoning (or output) still
  * in the prompt is split out of the cached part, where it normally sits. Hover to read, click to open.
  */
-function ContextGrowth({ points, carry, onSelect }: { points: ContextPoint[]; carry: Carry | null; onSelect: (id: string) => void }) {
+function ContextGrowth({ points, carry, breaks, onSelect }: { points: ContextPoint[]; carry: Carry | null; breaks: CacheBreaks | null; onSelect: (id: string) => void }) {
   const [hover, setHover] = useState<number | null>(null);
   const n = points.length, max = Math.max(1, ...points.map(p => p.fresh + p.cached));
   // analyzeCarry keeps one point per context point, in order.
   const carried = (i: number) => carry?.points[i]?.carried ?? 0;
   const word = carry?.basis === 'output' ? 'output' : 'reasoning';
+  const missed = useMemo(() => new Map(breaks?.breaks.map(b => [b.id, b]) ?? []), [breaks]);
   const compactions = points.filter(p => p.compactedBefore).length;
   const shown = hover != null ? points[hover] : null;
   const gap = n > 120 ? 0 : 0.15;
@@ -232,6 +296,7 @@ function ContextGrowth({ points, carry, onSelect }: { points: ContextPoint[]; ca
               </g>
             );
           })}
+          {points.map((p, i) => missed.has(p.id) && <rect key={`m${p.id}`} x={i + gap} width={1 - gap * 2} y={0} height={5} fill="var(--destructive)" />)}
           {points.map((p, i) => p.compactedBefore && (
             <line key={`c${p.id}`} x1={i} x2={i} y1={0} y2={100} stroke="var(--kind-compaction)" strokeWidth={1.5} strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />
           ))}
@@ -241,6 +306,7 @@ function ContextGrowth({ points, carry, onSelect }: { points: ContextPoint[]; ca
             <span className="truncate">
               <span className="font-medium text-foreground">Request #{shown.request}</span> · {full(shown.cached)} cached + {full(shown.fresh)} new · {full(shown.output)} out
               {carried(hover!) > 0 && <> · {full(carried(hover!))} earlier {word}</>}
+              {missed.has(shown.id) && <span className="text-destructive"> · cache miss{missed.get(shown.id)!.gapMs != null ? ` after a ${duration(missed.get(shown.id)!.gapMs)} wait` : ''}</span>}
               {shown.compactedBefore && <span className="text-kind-compaction"> · after compaction</span>}
             </span>
           ) : (
@@ -249,6 +315,7 @@ function ContextGrowth({ points, carry, onSelect }: { points: ContextPoint[]; ca
               <span className="flex items-center gap-1"><i className="size-2 rounded-[2px] bg-kind-model/40" />cached</span>
               {carry && carry.reread > 0 && <span className="flex items-center gap-1"><i className="size-2 rounded-[2px] bg-kind-reasoning" />earlier {word}</span>}
               {compactions > 0 && <span className="flex items-center gap-1"><i className="h-2.5 w-0 border-l border-dashed border-kind-compaction" />compaction</span>}
+              {missed.size > 0 && <span className="flex items-center gap-1"><i className="h-1 w-2 rounded-[1px] bg-destructive" />cache miss</span>}
               <span className="ml-auto">#{points[0].request} → #{points.at(-1)!.request}</span>
             </>
           )}

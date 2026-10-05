@@ -9,6 +9,14 @@ const columnsOf = (db, table) => new Set(query(db, `PRAGMA table_info(${table})`
 // Older schemas (and the AGY projection) omit newer columns; select NULL in their place.
 const pick = (columns, name) => columns.has(name) ? name : `NULL ${name}`;
 // ZCode marks runtime-injected user-role messages (reminders, notifications, summaries) as synthetic or non-user origin.
+// Codex marks a cut output with "Warning: truncated output (original token count: N)": once for the whole script
+// output and once inside each command result it cut. The largest count is the biggest output the model lost.
+// Only the head is read, so a cut deep inside a long multi-command output can go unnoticed.
+const TRUNCATED = /truncated output \(original token count: (\d+)\)/g;
+const truncatedTokens = head => {
+  const counts = [...String(head ?? '').matchAll(TRUNCATED)].map(match => Number(match[1]));
+  return counts.length ? Math.max(...counts) : null;
+};
 const injectedLabel = kind => { const text = label(kind, 60).replaceAll('_', ' ').trim(); return text ? text[0].toUpperCase() + text.slice(1) : 'Injected context'; };
 
 export function readTrajectory(db, { sessionId, startedAt, limit = 2000 }) {
@@ -30,7 +38,8 @@ export function readTrajectory(db, { sessionId, startedAt, limit = 2000 }) {
     coalesce(json_extract(data,'$.compactReason'),json_extract(data,'$.trigger')) reason,
     json_extract(data,'$.preCompactTokenCount') pre_tokens,
     coalesce(json_extract(data,'$.truePostCompactTokenCount'),json_extract(data,'$.postCompactTokenCount')) post_tokens,
-    json_extract(data,'$.attempt') attempt
+    json_extract(data,'$.attempt') attempt,
+    CASE WHEN json_extract(data,'$.type')='tool' THEN substr(json_extract(data,'$.state.output'),1,2000) END output_head
     FROM part WHERE session_id=? AND time_created>=? AND json_valid(data)
     AND json_extract(data,'$.type') IN ('tool','compaction','retry','checkpoint')
     ORDER BY time_created DESC,id DESC LIMIT ?`, sessionId, since, cap + 1);
@@ -75,6 +84,9 @@ export function readTrajectory(db, { sessionId, startedAt, limit = 2000 }) {
       startedAt: number(row.started) ?? number(row.part_started) ?? row.time_created, endedAt: number(row.ended) ?? number(row.part_ended),
       status: label(row.status || (row.part_ended ? 'completed' : 'recorded'), 40), source: 'part', recordId: row.id, messageId: row.message_id };
     if (row.type === 'tool' && (flag(row.has_error) || row.status === 'error')) event.isError = true;
+    // Only the size the harness reports leaves this reader, never the output itself.
+    const truncatedFrom = truncatedTokens(row.output_head);
+    if (truncatedFrom != null) event.truncatedFrom = truncatedFrom;
     if (kind === 'compaction') Object.assign(event, { reason: row.reason ? label(row.reason, 40) : null,
       preTokens: number(row.pre_tokens), postTokens: number(row.post_tokens) });
     if (row.type === 'retry') event.attempt = number(row.attempt);

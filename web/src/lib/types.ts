@@ -18,6 +18,8 @@ export interface TrajectoryEvent {
   origin?: string;
   isError?: boolean;
   error?: string | null;
+  /** Tool results: the output's size in tokens before the harness cut it, when it did. */
+  truncatedFrom?: number | null;
   // Model requests
   request?: number;
   inputTokens?: number | null;

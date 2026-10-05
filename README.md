@@ -130,6 +130,15 @@ bun run dev:web
 
 `dev:dashboard` is a read-only hub on `127.0.0.1:4780` (Stop and Retry are refused; it rereads the build on every request). `dev:web` is Vite with hot reload on `127.0.0.1:5173`, proxying `/api/` to that hub.
 
+### Insights
+
+The Insights tab audits a run from its per-request usage alone, in the browser, so it works against any hub version:
+
+- **Where the time went** and **Where the input went** split wall time and Σ prompt tokens by source. Every request re-reads its whole prompt, so a token that enters the context is counted once per later request that reads it: the starting context, the model's earlier reasoning and replies, and each tool's results (inferred from prompt growth between requests).
+- **Reasoning carry-over** plots reasoning generated against reasoning read again by later prompts (about r × N²/2 for N requests), with a what-if multiplier that holds the trajectory fixed. Prompt growth is checked against the reasoning produced, so a provider that drops earlier reasoning is flagged rather than assumed.
+- Findings name the heaviest tool results, tool outputs the harness cut (with their original size), prompt-cache misses (separating waits longer than a typical cache lifetime from changed prefixes), a run bound by how fast the model writes (with the reasoning share of that time), responses cut at the output limit and the token cost of repeated calls.
+- A compaction starts a new context at the request whose prompt shrank, even when the worker records it a request later (as Codex does).
+
 ### Performance
 
 The dashboard uses native `Bun.serve`, `Bun.file` and cached `bun:sqlite` telemetry queries. Catalog polling stops without stream clients. Unchanged files and database projections are reused; finished trajectories load on selection. Cache invalidation still checks file identity, timestamps, database changes and schema changes.

@@ -64,6 +64,7 @@ export function inputPaths(input: string, project: string): string[] {
       if (token.toLowerCase() === prefix.slice(0,-1).toLowerCase()) continue;
       if (token.toLowerCase().startsWith(prefix.toLowerCase())) token = token.slice(prefix.length);
       if (!token || /(?:^|\/)\.agent-dispatch(?:\/|$)/i.test(token) || /^(?:https?|data):/i.test(token)) continue;
+      if (!isPath && /\.(?:exe|com|cmd|bat)$/i.test(token)) continue; // invoked programs, not read targets
       const named = isPath || /^(?:Dockerfile|Makefile|LICENSE|README|\.env(?:\.[\w.-]+)?|\.gitignore|\.gitattributes|\.npmrc|\.editorconfig)$/.test(token);
       if (!token.includes('/') && !named && !(quoted || token === text || FILE_EXT.test(token))) continue;
       if (!named && !/^[\w .@~+-]+\.[a-zA-Z0-9]+$/.test(token.split('/').at(-1)!)) continue;

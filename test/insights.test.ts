@@ -62,6 +62,8 @@ test('path heuristic normalizes project prefixes, avoids identifiers/URLs and ig
     .toEqual(['src/extensionless', 'Dockerfile', '.env', 'NOTICE']);
   expect(inputPaths(JSON.stringify({ path: 'docs/my file.txt', cmd: 'rg x src; text(rs[0].output); print("\\n"); cat C:/repo' }), 'C:/repo'))
     .toEqual(['docs/my file.txt']);
+  expect(inputPaths(JSON.stringify({ cmd: "& 'C:/Program Files/Git/bin/bash.exe' -c 'sed -n 1,9p src/a.ts'; emc.cmd health" }), 'C:/repo'))
+    .toEqual(['src/a.ts']);
 });
 
 test('insights CLI reads available telemetry, full inputs and session totals without changing files', () => {

@@ -3,8 +3,8 @@
 <!-- Stage 1 of every delegated task: launch with --stage discovery. Same limit as the
      assignment (12,000 characters excluding a leading BOM); aim for 1,500–4,000.
      Ask questions, do not pre-plan: the plan is written after this report.
-     The runner adds a no-edit preamble and compares the git working tree before
-     and after. -->
+     The runner adds no-edit and context-budget preambles and compares
+     the git working tree before and after. -->
 
 ## Outcome and scope
 <The user's requested outcome, observable success, constraints and exclusions, as context for the questions. This stage does not implement it.>

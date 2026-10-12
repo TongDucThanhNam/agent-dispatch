@@ -1,6 +1,7 @@
 # Task brief
 
-<!-- Stage 2 of every delegated task: launch with --from <discovery ref> (agent-dispatch launch). -->
+<!-- Stage 2 of every delegated task: launch with --from <discovery ref> (agent-dispatch launch).
+     The runner adds a context-budget preamble (images, long output); do not repeat it. -->
 
 ## Outcome and scope
 <Full requested outcome and observable success; authorized effects; exclusions; preserve unrelated edits.>

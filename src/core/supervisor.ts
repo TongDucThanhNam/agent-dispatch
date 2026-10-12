@@ -101,15 +101,17 @@ export async function stopOwnedWorker(child: any) {
 
 const DISCOVERY_PREAMBLE = 'Discovery stage: investigate and return evidence for the orchestrator to plan from. Do not implement, refactor or fix the task, and do not create, edit or delete project files; the runner compares the working tree before and after this run. You may read files and run read-only commands, reproductions and existing tests or builds. Put any temporary probe only under .tmp/. Answer every question in the brief. Label claims OBSERVED (with path:symbol or command and result), INFERRED (with the evidence it rests on) or NOT CHECKED (with the reason). Keep proposals separate from facts. Return one final discovery report in the requested format; do not wait for approval.\n\n';
 const EXECUTION_PREAMBLE = 'Execution ownership: Follow the task scope and mode below. For implementation, complete the authorized task, run acceptance tests, self-review the final diff, fix findings and failures, and rerun affected checks after final edits. Keep routine repair iterations internal; do not return for stage approval. Return one final report only after required checks pass, including test commands/results, evidence, self-review fixes and limitations. Never weaken tests or hide failed/unrun checks. If genuinely blocked, return an explicit BLOCKED report with the obstacle and smallest needed resolution. If a replan condition in the brief occurs, or evidence contradicts a locked decision, stop and return BLOCKED (REPLAN) with that evidence instead of changing the decision. Read-only or planning assignments remain read-only.\n\n';
+// Every stage: tool output stays in the conversation, so these are the costly patterns observed in real runs.
+const CONTEXT_PREAMBLE = 'Context budget: tool output stays in the conversation and is resent with every later step. Do not load images, screenshots or binary files into context unless the brief or project instructions require visual inspection; compare them with a script and read its summary. Write long command, test or build output to a file under .tmp/ and read only the failing or final part.\n\n';
 
-/** The exact prompt the worker receives: run header, workspace note (AGY), stage preamble, discovery packet, then the brief. */
+/** The exact prompt the worker receives: run header, workspace note (AGY), stage and context preambles, discovery packet, then the brief. */
 export function buildPrompt(config: any, assignment: string) {
   const workspace = config.workerKind === 'agy'
     ? `Authorized project: ${config.project}\nUse this absolute project path for file operations and set command working directories explicitly. AGY's default scratch directory is not this project. Keep all assigned changes inside the authorized project.\n\n` : '';
   const drift = describeChanges(config.discoveryDrift);
   const packet = config.stage === 'execution' && config.discoveryRunDir
     ? `Discovery packet: ${path.join(config.discoveryRunDir, 'worker-report.md')}\nThe plan in the brief was made from this packet. Use it for evidence and source references; the brief's decisions take precedence over its proposals.${drift ? ` Project files changed since discovery: ${drift}. Re-read them before relying on the packet.` : ''}\n\n` : '';
-  return `Dispatch run: ${config.runId}\n\n${workspace}${config.stage === 'discovery' ? DISCOVERY_PREAMBLE : EXECUTION_PREAMBLE}${packet}${assignment}`;
+  return `Dispatch run: ${config.runId}\n\n${workspace}${config.stage === 'discovery' ? DISCOVERY_PREAMBLE : EXECUTION_PREAMBLE}${CONTEXT_PREAMBLE}${packet}${assignment}`;
 }
 
 export interface SuperviseDeps {

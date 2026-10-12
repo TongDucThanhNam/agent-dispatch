@@ -82,13 +82,14 @@ describe('run commands', () => {
       'agent-dispatch report aaaa1111',
       'agent-dispatch template assignment',
       'agent-dispatch launch --worker zcode --from aaaa1111 --brief <plan.md>',
+      'agent-dispatch insights aaaa1111',
     ]);
     expect(cli('status', 'aaaa1111', '--full').envelope.data).toHaveProperty('selection');
   });
 
   test('a blocked execution run without a report suggests resuming its session', () => {
     const r = cli('status', 'bbbb2222');
-    expect(r.envelope.next).toEqual(['agent-dispatch resume bbbb2222 --brief <follow-up.md>']);
+    expect(r.envelope.next).toEqual(['agent-dispatch resume bbbb2222 --brief <follow-up.md>', 'agent-dispatch insights bbbb2222']);
     const report = cli('report', 'bbbb2222');
     expect(report.status).toBe(3);
     expect(report.envelope.error).toMatchObject({ code: 'REPORT_MISSING', details: { status: 'blocked' } });

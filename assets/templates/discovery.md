@@ -25,4 +25,5 @@ Return one report, compact, citing paths and lines instead of pasting large code
 3. **Execution path and contracts** – the relevant flow, interfaces, invariants and formats a change must preserve.
 4. **Baseline** – test/build commands run and their results before any change; pre-existing failures.
 5. **Decision points** – choices the plan must make, with options, evidence and risks for each.
-6. **Proposals** – an optional suggested approach, kept separate from the facts above.
+6. **Reading map** – for each decision point, the `path:start-end` ranges the executor needs and the command that located them.
+7. **Proposals** – an optional suggested approach, kept separate from the facts above.

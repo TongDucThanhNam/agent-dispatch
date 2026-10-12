@@ -102,6 +102,17 @@ export function readToolCallId(dbPath, { sessionId, project, startedAt, eventId 
   } finally { db.close(); }
 }
 
+/** Whole-run UTF-8 output volume, without loading tool results into memory. */
+export function readToolOutputBytes(dbPath, source) {
+  const { db, since } = openSession(dbPath, source);
+  try {
+    return db.prepare(`SELECT COUNT(*) total,COUNT(json_extract(data,'$.state.output')) recorded,
+      SUM(length(CAST(CAST(json_extract(data,'$.state.output') AS TEXT) AS BLOB))) bytes
+      FROM part WHERE session_id=? AND time_created>=? AND json_valid(data) AND json_extract(data,'$.type')='tool'`)
+      .get(source.sessionId, since) as { total: number; recorded: number; bytes: number | null };
+  } finally { db.close(); }
+}
+
 const oneLine = (value, size) => clean(displayText(value).replace(/\s+/g, ' ').trim(), size);
 const INPUT_KEYS = ['command', 'CommandLine', 'cmd', 'file_path', 'filePath', 'AbsolutePath', 'TargetFile', 'path', 'pattern', 'Query',
   'query', 'url', 'Url', 'description', 'subject', 'prompt', 'skill', 'name'];

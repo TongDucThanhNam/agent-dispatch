@@ -7,6 +7,7 @@ import { CLI_NAME, nodeExecutable } from '../core/paths.ts';
 import { validateConfig, defaultPaths, shortRef, UUID, WORKERS, type WorkerKind } from '../core/config.ts';
 import { resolveRun, listRuns } from '../core/runs.ts';
 import { compactStatus, statusSummary, markReview } from '../core/status.ts';
+import { runInsights, insightCounts } from '../core/insights.ts';
 import { check, launch, resume } from '../core/launch.ts';
 import { supervise } from '../core/supervisor.ts';
 import { inspectProject } from '../core/preflight.ts';
@@ -80,7 +81,8 @@ function nextFor(s: any): string[] | undefined {
   if (s.stage === 'discovery' && s.status === 'ready_for_review')
     next.push(`${C} template assignment`, `${C} launch --worker ${s.worker} --from ${r} --brief <plan.md>`);
   else if (s.sessionId && s.workerExited && !['ready_for_review', 'complete'].includes(s.status)) next.push(`${C} resume ${r} --brief <follow-up.md>`);
-  return next.length ? next : undefined;
+  next.push(`${C} insights ${r}`);
+  return next;
 }
 
 const launchNext = (receipt: any) => receipt.notify === 'codex' && detectOrchestrator() === 'codex' ? undefined : [`${C} wait ${receipt.ref}`];
@@ -155,11 +157,18 @@ export const COMMANDS: Record<string, Command> = {
   status: { usage: 'status <ref> [--full] [--project DIR]', summary: 'Compact run status (--full: complete record).', flags: ['full'], values: ['project', 'ref'], aliases: REF_ALIASES, args: [0, 1],
     run: (o, a) => {
       const runDir = refOf(o, a), summary = statusSummary(runDir);
-      return { data: o.full ? { ref: summary.ref, ...compactStatus(runDir) } : summary, next: nextFor(summary) };
+      const counts = summary.settled ? insightCounts(runDir) : undefined;
+      return { data: { ...(o.full ? { ref: summary.ref, ...compactStatus(runDir) } : summary), ...(counts ? { insightCounts: counts } : {}) }, next: nextFor(summary) };
     } },
   wait: { usage: 'wait <ref> [--interval-seconds N] [--timeout-minutes N]', summary: 'Block until the run settles; no model calls.',
     values: ['project', 'ref', 'interval-seconds', 'timeout-minutes'], aliases: REF_ALIASES, args: [0, 1],
-    run: async (o, a) => { const summary = await waitFor(refOf(o, a), o); return { data: summary, next: nextFor(summary) }; } },
+    run: async (o, a) => {
+      const runDir = refOf(o, a), summary = await waitFor(runDir, o), counts = insightCounts(runDir);
+      return { data: { ...summary, ...(counts ? { insightCounts: counts } : {}) }, next: nextFor(summary) };
+    } },
+  insights: { usage: 'insights <ref> [--full] [--project DIR]', summary: 'Read-only context findings, reread evidence and coverage.',
+    flags: ['full'], values: ['project', 'ref'], aliases: REF_ALIASES, args: [0, 1],
+    run: (o, a) => ({ data: runInsights(refOf(o, a), { full: !!o.full }) }) },
   report: { usage: 'report <ref> [--max-chars N]', summary: 'Print the worker report (raw text).', values: ['project', 'ref', 'max-chars'], aliases: REF_ALIASES, args: [0, 1],
     run: async (o, a) => ({ text: await report(refOf(o, a), o) }) },
   runs: { usage: 'runs [--project DIR] [--active] [--limit N] [--all]', summary: 'List recent runs (this project, or --all known runs).', values: ['project', 'limit'], flags: ['active', 'all'],

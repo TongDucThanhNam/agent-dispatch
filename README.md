@@ -44,6 +44,7 @@ agent-dispatch report <ref2>
   `guide`, `template` and `report` print raw text. `--pretty` indents the JSON.
 - **Token budget:** null keys are pruned (absent means null). `status` is a compact, flat summary; `--full` gives the complete record. File lists are capped at 10 entries, with `changedCount` holding the total. `report --max-chars N` truncates. `next` suggests the follow-up commands, so an agent rarely has to re-read the guide.
 - **Run refs:** the 8-hex `ref` from a receipt, a full run ID, `last`, or a run directory.
+- **Insights:** `insights <ref>` reads session telemetry without a hub or writes. Findings keep dashboard ordering and text; defaults cap findings at 10 and IDs at 3, dropping lowest-ranked findings to fit a compact line (counts in `dropped`); `--full` lifts finding/ID caps. `coverage` states availability, the trajectory window, preview/input coverage and image support. No session/database means `available:false`, not a clean analysis; unreadable data is `IO_ERROR`. Hot files are path mentions, not proven reads; Codex image bytes are decoded recorded images, and tool-output bytes measure stored UTF-8 output. Settled `status`/`wait` point here and add `insightCounts:{high,medium,low}` only when optional preview analysis succeeds.
 - **Exit codes and error codes:** the codes are a stable contract. New codes may be added; existing ones are never renamed or renumbered. The full table is in `agent-dispatch guide errors`.
 
   | exit | codes |
@@ -69,6 +70,7 @@ agent-dispatch report <ref2>
 | `launch --worker W --stage discovery --brief F` | Stage 1 |
 | `launch --worker W --from REF --brief F` | Stage 2: a fresh execution run linked to the discovery run |
 | `status REF [--full]` · `wait REF` · `report REF` | Follow a run |
+| `insights REF [--full]` | Context findings, hot-file/image evidence, totals and coverage (read-only JSON) |
 | `resume REF --brief F` | Continue the exact worker session in a new run |
 | `runs [--active] [--all]` · `stop REF` · `inspect` | Runs and ownership |
 | `dashboard [REF]` · `export REF [--out F.zip]` · `desktop REF` | Live dashboard, session-log ZIP, ZCode desktop/TUI handoff |

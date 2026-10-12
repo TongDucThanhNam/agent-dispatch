@@ -1,0 +1,819 @@
+{
+  "wallMs": 2420000,
+  "time": [
+    {
+      "key": "decode",
+      "label": "Model decoding",
+      "ms": 800000,
+      "color": "var(--kind-model)",
+      "hint": "The model streaming its reply after the first token",
+      "ids": [
+        "request:r0",
+        "request:r1",
+        "request:r2",
+        "request:r3",
+        "request:r4",
+        "request:r5",
+        "request:r6",
+        "request:r7"
+      ]
+    },
+    {
+      "key": "tool:Bash",
+      "label": "Bash",
+      "ms": 650000,
+      "color": "var(--kind-tool)",
+      "hint": "Tool calls running",
+      "ids": [
+        "part:t3",
+        "part:t4",
+        "part:t5",
+        "part:t6",
+        "part:t7"
+      ]
+    },
+    {
+      "key": "wait",
+      "label": "Waiting for model",
+      "ms": 400000,
+      "color": "var(--kind-model-wait)",
+      "hint": "Time to first token: prompt processing and queueing",
+      "ids": [
+        "request:r0",
+        "request:r1",
+        "request:r2",
+        "request:r3",
+        "request:r4",
+        "request:r5",
+        "request:r6",
+        "request:r7"
+      ]
+    },
+    {
+      "key": "tool:apply_patch",
+      "label": "apply_patch",
+      "ms": 390000,
+      "color": "color-mix(in oklch, var(--kind-tool) 62%, var(--foreground))",
+      "hint": "Tool calls running",
+      "ids": [
+        "part:t0",
+        "part:t1",
+        "part:t2"
+      ]
+    },
+    {
+      "key": "idle",
+      "label": "Untracked",
+      "ms": 170000,
+      "color": "color-mix(in oklch, var(--muted-foreground) 28%, transparent)",
+      "hint": "No model request or tool call recorded: harness overhead, approvals, or an idle worker",
+      "ids": []
+    },
+    {
+      "key": "compaction",
+      "label": "Compaction",
+      "ms": 10000,
+      "color": "var(--kind-compaction)",
+      "hint": "Summarising the context to fit the window",
+      "ids": [
+        "part:c"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "key": "patch",
+      "severity": "high",
+      "area": "Errors",
+      "ids": [
+        "part:t0",
+        "part:t1",
+        "part:t2"
+      ],
+      "title": "3 edits failed to apply",
+      "detail": "The patch context did not match the file: the agent edited from stale or guessed contents. Re-reading the file before patching avoids the retry loop."
+    },
+    {
+      "key": "slow",
+      "severity": "medium",
+      "area": "Time",
+      "ids": [
+        "part:t0",
+        "part:t1",
+        "part:t2",
+        "part:t3",
+        "part:t4",
+        "part:t5",
+        "part:t6",
+        "part:t7"
+      ],
+      "title": "8 tool calls ran over 2 minutes",
+      "detail": "17m 20s in total. Longest: apply_patch 2m 10s (src/a.ts); apply_patch 2m 10s (src/a.ts); apply_patch 2m 10s (src/a.ts)."
+    },
+    {
+      "key": "cache-break",
+      "severity": "medium",
+      "area": "Cache",
+      "ids": [
+        "request:r4"
+      ],
+      "title": "Prompt cache missed 1 time mid-run",
+      "detail": "80K tokens the previous request had cached were processed again at the full input rate. The rest point to a changed prefix: edited earlier context, a model or setting change, or eviction by the provider."
+    },
+    {
+      "key": "requests",
+      "severity": "medium",
+      "area": "Errors",
+      "ids": [],
+      "title": "1 model request failed, 3 retries",
+      "detail": "Provider errors or rate limits. Retries add back-off time and resend the whole prompt."
+    },
+    {
+      "key": "heavy-result",
+      "severity": "low",
+      "area": "Context",
+      "ids": [
+        "part:t0",
+        "part:t1",
+        "part:t2",
+        "part:t3",
+        "part:t4"
+      ],
+      "title": "One apply_patch result was read again 7×",
+      "detail": "About 17K tokens entered the context after request #1 and every later request read them: 119K tokens, 17% of all prompt tokens. Trimming output before it enters the context (a line range, a narrower search, head/tail) saves it on every step after."
+    },
+    {
+      "key": "repeats",
+      "severity": "low",
+      "area": "Waste",
+      "ids": [
+        "part:t3",
+        "part:t4",
+        "part:t5",
+        "part:t6",
+        "part:t7"
+      ],
+      "title": "4 calls repeated an earlier call",
+      "detail": "1 call ran 4 or more times with the same input, e.g. “cat src/a.ts” ×5. A fix-and-rerun loop or a repeated status check; each run adds its output to the context again, and the repeats alone put 102K tokens through later prompts."
+    },
+    {
+      "key": "tool-share",
+      "severity": "low",
+      "area": "Context",
+      "ids": [
+        "part:t0",
+        "part:t1",
+        "part:t2"
+      ],
+      "title": "apply_patch results are 43% of all prompt tokens",
+      "detail": "306K prompt tokens re-read results this tool returned, 3.6× what the model's own reasoning and replies cost. Shrinking those results moves the total more than lowering effort."
+    },
+    {
+      "key": "output-limit",
+      "severity": "low",
+      "area": "Errors",
+      "ids": [
+        "request:r2"
+      ],
+      "title": "1 response hit the output limit",
+      "detail": "Generation stopped at the maximum output tokens, so the reply or tool call was cut short and has to be continued or redone. With reasoning on, long reasoning can use up the limit before the answer starts."
+    },
+    {
+      "key": "compaction",
+      "severity": "low",
+      "area": "Context",
+      "ids": [
+        "part:c"
+      ],
+      "title": "Context compacted 1×",
+      "detail": "Peak prompt — tokens. Each compaction drops detail the agent may have to re-read; large tool outputs are the usual cause."
+    },
+    {
+      "key": "truncated-output",
+      "severity": "low",
+      "area": "Context",
+      "ids": [
+        "part:t6"
+      ],
+      "title": "1 tool output cut short by the harness",
+      "detail": "They held 80K tokens in total (the largest 80K); the model saw only what fit under the cap. A cut output still enters the context at full cap and is re-read like any other, while the rest is lost: a narrower command (a path, a pattern, a line range) returns less and loses nothing."
+    },
+    {
+      "key": "truncated",
+      "severity": "info",
+      "area": "Data",
+      "ids": [],
+      "title": "Only the most recent 2,000 events are loaded",
+      "detail": "Counts from the session totals are complete; lists and patterns cover the loaded events."
+    }
+  ],
+  "errors": [
+    {
+      "key": "apply_patch\u0000apply_patch verification failed",
+      "tool": "apply_patch",
+      "title": "apply_patch verification failed",
+      "ids": [
+        "part:t0",
+        "part:t1",
+        "part:t2"
+      ],
+      "variants": [
+        {
+          "text": "missing line",
+          "ids": [
+            "part:t0",
+            "part:t1",
+            "part:t2"
+          ]
+        }
+      ]
+    }
+  ],
+  "repeats": [
+    {
+      "key": "Bash\u0000cat src/a.ts",
+      "tool": "Bash",
+      "text": "cat src/a.ts",
+      "ids": [
+        "part:t3",
+        "part:t4",
+        "part:t5",
+        "part:t6",
+        "part:t7"
+      ],
+      "failed": 0,
+      "ms": 650000,
+      "tokens": 102000
+    }
+  ],
+  "slowest": [
+    {
+      "id": "request:r0",
+      "kind": "model",
+      "label": "model",
+      "status": "completed",
+      "request": 1,
+      "startedAt": 1000000,
+      "endedAt": 1150000,
+      "inputTokens": 20000,
+      "cacheReadTokens": 10000,
+      "outputTokens": 3000,
+      "reasoningTokens": 2000,
+      "ttftMs": 50000,
+      "finishReason": "tool_use"
+    },
+    {
+      "id": "request:r1",
+      "kind": "model",
+      "label": "model",
+      "status": "completed",
+      "request": 2,
+      "startedAt": 1300000,
+      "endedAt": 1450000,
+      "inputTokens": 40000,
+      "cacheReadTokens": 29000,
+      "outputTokens": 3000,
+      "reasoningTokens": 2000,
+      "ttftMs": 50000,
+      "finishReason": "tool_use"
+    },
+    {
+      "id": "request:r2",
+      "kind": "model",
+      "label": "model",
+      "status": "completed",
+      "request": 3,
+      "startedAt": 1600000,
+      "endedAt": 1750000,
+      "inputTokens": 60000,
+      "cacheReadTokens": 48000,
+      "outputTokens": 3000,
+      "reasoningTokens": 2000,
+      "ttftMs": 50000,
+      "finishReason": "max_tokens"
+    },
+    {
+      "id": "request:r3",
+      "kind": "model",
+      "label": "model",
+      "status": "completed",
+      "request": 4,
+      "startedAt": 1900000,
+      "endedAt": 2050000,
+      "inputTokens": 80000,
+      "cacheReadTokens": 67000,
+      "outputTokens": 3000,
+      "reasoningTokens": 2000,
+      "ttftMs": 50000,
+      "finishReason": "tool_use"
+    },
+    {
+      "id": "request:r4",
+      "kind": "model",
+      "label": "model",
+      "status": "completed",
+      "request": 5,
+      "startedAt": 2200000,
+      "endedAt": 2350000,
+      "inputTokens": 100000,
+      "cacheReadTokens": 0,
+      "outputTokens": 3000,
+      "reasoningTokens": 2000,
+      "ttftMs": 50000,
+      "finishReason": "tool_use"
+    },
+    {
+      "id": "request:r5",
+      "kind": "model",
+      "label": "model",
+      "status": "completed",
+      "request": 6,
+      "startedAt": 2500000,
+      "endedAt": 2650000,
+      "inputTokens": 120000,
+      "cacheReadTokens": 105000,
+      "outputTokens": 3000,
+      "reasoningTokens": 2000,
+      "ttftMs": 50000,
+      "finishReason": "tool_use"
+    },
+    {
+      "id": "request:r6",
+      "kind": "model",
+      "label": "model",
+      "status": "completed",
+      "request": 7,
+      "startedAt": 2800000,
+      "endedAt": 2950000,
+      "inputTokens": 140000,
+      "cacheReadTokens": 124000,
+      "outputTokens": 3000,
+      "reasoningTokens": 2000,
+      "ttftMs": 50000,
+      "finishReason": "tool_use"
+    },
+    {
+      "id": "request:r7",
+      "kind": "model",
+      "label": "model",
+      "status": "completed",
+      "request": 8,
+      "startedAt": 3100000,
+      "endedAt": 3250000,
+      "inputTokens": 160000,
+      "cacheReadTokens": 143000,
+      "outputTokens": 3000,
+      "reasoningTokens": 2000,
+      "ttftMs": 50000,
+      "finishReason": "tool_use"
+    }
+  ],
+  "context": [
+    {
+      "id": "request:r0",
+      "request": 1,
+      "at": 1000000,
+      "endedAt": 1150000,
+      "ttftMs": 50000,
+      "fresh": 10000,
+      "cached": 10000,
+      "output": 3000,
+      "reasoning": 2000,
+      "compactedBefore": false
+    },
+    {
+      "id": "request:r1",
+      "request": 2,
+      "at": 1300000,
+      "endedAt": 1450000,
+      "ttftMs": 50000,
+      "fresh": 11000,
+      "cached": 29000,
+      "output": 3000,
+      "reasoning": 2000,
+      "compactedBefore": false
+    },
+    {
+      "id": "request:r2",
+      "request": 3,
+      "at": 1600000,
+      "endedAt": 1750000,
+      "ttftMs": 50000,
+      "fresh": 12000,
+      "cached": 48000,
+      "output": 3000,
+      "reasoning": 2000,
+      "compactedBefore": false
+    },
+    {
+      "id": "request:r3",
+      "request": 4,
+      "at": 1900000,
+      "endedAt": 2050000,
+      "ttftMs": 50000,
+      "fresh": 13000,
+      "cached": 67000,
+      "output": 3000,
+      "reasoning": 2000,
+      "compactedBefore": false
+    },
+    {
+      "id": "request:r4",
+      "request": 5,
+      "at": 2200000,
+      "endedAt": 2350000,
+      "ttftMs": 50000,
+      "fresh": 100000,
+      "cached": 0,
+      "output": 3000,
+      "reasoning": 2000,
+      "compactedBefore": false
+    },
+    {
+      "id": "request:r5",
+      "request": 6,
+      "at": 2500000,
+      "endedAt": 2650000,
+      "ttftMs": 50000,
+      "fresh": 15000,
+      "cached": 105000,
+      "output": 3000,
+      "reasoning": 2000,
+      "compactedBefore": false
+    },
+    {
+      "id": "request:r6",
+      "request": 7,
+      "at": 2800000,
+      "endedAt": 2950000,
+      "ttftMs": 50000,
+      "fresh": 16000,
+      "cached": 124000,
+      "output": 3000,
+      "reasoning": 2000,
+      "compactedBefore": false
+    },
+    {
+      "id": "request:r7",
+      "request": 8,
+      "at": 3100000,
+      "endedAt": 3250000,
+      "ttftMs": 50000,
+      "fresh": 17000,
+      "cached": 143000,
+      "output": 3000,
+      "reasoning": 2000,
+      "compactedBefore": false
+    }
+  ],
+  "carry": {
+    "basis": "reasoning",
+    "points": [
+      {
+        "id": "request:r0",
+        "request": 1,
+        "prompt": 20000,
+        "generated": 2000,
+        "carried": 0,
+        "rereads": 7,
+        "generatedSoFar": 2000,
+        "rereadSoFar": 0,
+        "compactedBefore": false
+      },
+      {
+        "id": "request:r1",
+        "request": 2,
+        "prompt": 40000,
+        "generated": 2000,
+        "carried": 2000,
+        "rereads": 6,
+        "generatedSoFar": 4000,
+        "rereadSoFar": 2000,
+        "compactedBefore": false
+      },
+      {
+        "id": "request:r2",
+        "request": 3,
+        "prompt": 60000,
+        "generated": 2000,
+        "carried": 4000,
+        "rereads": 5,
+        "generatedSoFar": 6000,
+        "rereadSoFar": 6000,
+        "compactedBefore": false
+      },
+      {
+        "id": "request:r3",
+        "request": 4,
+        "prompt": 80000,
+        "generated": 2000,
+        "carried": 6000,
+        "rereads": 4,
+        "generatedSoFar": 8000,
+        "rereadSoFar": 12000,
+        "compactedBefore": false
+      },
+      {
+        "id": "request:r4",
+        "request": 5,
+        "prompt": 100000,
+        "generated": 2000,
+        "carried": 8000,
+        "rereads": 3,
+        "generatedSoFar": 10000,
+        "rereadSoFar": 20000,
+        "compactedBefore": false
+      },
+      {
+        "id": "request:r5",
+        "request": 6,
+        "prompt": 120000,
+        "generated": 2000,
+        "carried": 10000,
+        "rereads": 2,
+        "generatedSoFar": 12000,
+        "rereadSoFar": 30000,
+        "compactedBefore": false
+      },
+      {
+        "id": "request:r6",
+        "request": 7,
+        "prompt": 140000,
+        "generated": 2000,
+        "carried": 12000,
+        "rereads": 1,
+        "generatedSoFar": 14000,
+        "rereadSoFar": 42000,
+        "compactedBefore": false
+      },
+      {
+        "id": "request:r7",
+        "request": 8,
+        "prompt": 160000,
+        "generated": 2000,
+        "carried": 14000,
+        "rereads": 0,
+        "generatedSoFar": 16000,
+        "rereadSoFar": 56000,
+        "compactedBefore": false
+      }
+    ],
+    "generated": 16000,
+    "reread": 56000,
+    "prompt": 720000,
+    "peak": {
+      "id": "request:r7",
+      "request": 8,
+      "prompt": 160000,
+      "generated": 2000,
+      "carried": 14000,
+      "rereads": 0,
+      "generatedSoFar": 16000,
+      "rereadSoFar": 56000,
+      "compactedBefore": false
+    },
+    "atCompaction": null,
+    "retention": {
+      "verdict": "kept",
+      "share": 1
+    }
+  },
+  "mix": {
+    "total": 720000,
+    "slices": [
+      {
+        "key": "tool:apply_patch",
+        "label": "apply_patch",
+        "tokens": 306000,
+        "color": "color-mix(in oklch, var(--kind-tool) 62%, var(--foreground))",
+        "hint": "Results this tool returned, read by every later request",
+        "ids": [
+          "part:t0",
+          "part:t1",
+          "part:t2"
+        ]
+      },
+      {
+        "key": "tool:Bash",
+        "label": "Bash",
+        "tokens": 170000,
+        "color": "var(--kind-tool)",
+        "hint": "Results this tool returned, read by every later request",
+        "ids": [
+          "part:t3",
+          "part:t4",
+          "part:t5",
+          "part:t6"
+        ]
+      },
+      {
+        "key": "base",
+        "label": "Starting context",
+        "tokens": 160000,
+        "color": "color-mix(in oklch, var(--muted-foreground) 60%, transparent)",
+        "hint": "System prompt, tool definitions and the brief (or the summary after a compaction), read by every request",
+        "ids": [
+          "request:r0"
+        ]
+      },
+      {
+        "key": "reasoning",
+        "label": "Earlier reasoning",
+        "tokens": 56000,
+        "color": "var(--kind-reasoning)",
+        "hint": "Reasoning from earlier requests, still in the context",
+        "ids": [
+          "request:r0",
+          "request:r1",
+          "request:r2",
+          "request:r3",
+          "request:r4",
+          "request:r5",
+          "request:r6"
+        ]
+      },
+      {
+        "key": "output",
+        "label": "Earlier replies and tool calls",
+        "tokens": 28000,
+        "color": "var(--kind-model)",
+        "hint": "Text and tool-call arguments the model wrote earlier",
+        "ids": [
+          "request:r0",
+          "request:r1",
+          "request:r2",
+          "request:r3",
+          "request:r4",
+          "request:r5",
+          "request:r6"
+        ]
+      }
+    ],
+    "pruned": 0,
+    "results": [
+      [
+        "part:t0",
+        {
+          "id": "part:t0",
+          "tool": "apply_patch",
+          "request": 1,
+          "tokens": 17000,
+          "reads": 7,
+          "shared": 1,
+          "truncatedFrom": null
+        }
+      ],
+      [
+        "part:t1",
+        {
+          "id": "part:t1",
+          "tool": "apply_patch",
+          "request": 2,
+          "tokens": 17000,
+          "reads": 6,
+          "shared": 1,
+          "truncatedFrom": null
+        }
+      ],
+      [
+        "part:t2",
+        {
+          "id": "part:t2",
+          "tool": "apply_patch",
+          "request": 3,
+          "tokens": 17000,
+          "reads": 5,
+          "shared": 1,
+          "truncatedFrom": null
+        }
+      ],
+      [
+        "part:t3",
+        {
+          "id": "part:t3",
+          "tool": "Bash",
+          "request": 4,
+          "tokens": 17000,
+          "reads": 4,
+          "shared": 1,
+          "truncatedFrom": null
+        }
+      ],
+      [
+        "part:t4",
+        {
+          "id": "part:t4",
+          "tool": "Bash",
+          "request": 5,
+          "tokens": 17000,
+          "reads": 3,
+          "shared": 1,
+          "truncatedFrom": null
+        }
+      ],
+      [
+        "part:t5",
+        {
+          "id": "part:t5",
+          "tool": "Bash",
+          "request": 6,
+          "tokens": 17000,
+          "reads": 2,
+          "shared": 1,
+          "truncatedFrom": null
+        }
+      ],
+      [
+        "part:t6",
+        {
+          "id": "part:t6",
+          "tool": "Bash",
+          "request": 7,
+          "tokens": 17000,
+          "reads": 1,
+          "shared": 1,
+          "truncatedFrom": 80000
+        }
+      ]
+    ],
+    "heaviest": [
+      {
+        "id": "part:t0",
+        "tool": "apply_patch",
+        "request": 1,
+        "tokens": 17000,
+        "reads": 7,
+        "shared": 1,
+        "truncatedFrom": null
+      },
+      {
+        "id": "part:t1",
+        "tool": "apply_patch",
+        "request": 2,
+        "tokens": 17000,
+        "reads": 6,
+        "shared": 1,
+        "truncatedFrom": null
+      },
+      {
+        "id": "part:t2",
+        "tool": "apply_patch",
+        "request": 3,
+        "tokens": 17000,
+        "reads": 5,
+        "shared": 1,
+        "truncatedFrom": null
+      },
+      {
+        "id": "part:t3",
+        "tool": "Bash",
+        "request": 4,
+        "tokens": 17000,
+        "reads": 4,
+        "shared": 1,
+        "truncatedFrom": null
+      },
+      {
+        "id": "part:t4",
+        "tool": "Bash",
+        "request": 5,
+        "tokens": 17000,
+        "reads": 3,
+        "shared": 1,
+        "truncatedFrom": null
+      },
+      {
+        "id": "part:t5",
+        "tool": "Bash",
+        "request": 6,
+        "tokens": 17000,
+        "reads": 2,
+        "shared": 1,
+        "truncatedFrom": null
+      }
+    ],
+    "first": 20000,
+    "last": 160000
+  },
+  "cacheBreaks": {
+    "breaks": [
+      {
+        "id": "request:r4",
+        "request": 5,
+        "missed": 80000,
+        "gapMs": 150000,
+        "ttftMs": 50000,
+        "longWait": false
+      }
+    ],
+    "missed": 80000,
+    "ttft": {
+      "breaks": 50000,
+      "others": 50000
+    }
+  },
+  "coverage": {
+    "loaded": 8,
+    "total": 8
+  }
+}

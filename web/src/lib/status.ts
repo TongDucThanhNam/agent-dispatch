@@ -1,3 +1,4 @@
+import { isFailed } from '../../../shared/insights/events';
 import {
   Bot, CircleCheck, CircleDot, CircleSlash, CircleX, FileStack, Loader, MessageSquare, RotateCcw, Shrink, TriangleAlert, Wrench, type LucideIcon,
 } from 'lucide-react';
@@ -68,9 +69,7 @@ export const KIND: Record<EventKind, KindMeta> = {
 
 export const kindMeta = (kind: string): KindMeta => KIND[kind as EventKind] ?? { ...KIND.context, label: kind, role: kind };
 
-const RUNNING_EVENT = ['running', 'pending', 'streaming', 'in_progress', 'started', 'ACTIVE'];
-export const isRunning = (event: TrajectoryEvent) => !event.endedAt && RUNNING_EVENT.includes(event.status ?? '');
-export const isFailed = (event: TrajectoryEvent) => Boolean(event.isError || event.error || ['error', 'failed'].includes(event.status ?? ''));
+export { isRunning, isFailed } from '../../../shared/insights/events';
 export const eventName = (event: TrajectoryEvent) =>
   event.kind === 'model' && event.request ? `Request #${event.request}${event.step ? ` · step ${event.step}` : ''}` : event.label;
 

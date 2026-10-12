@@ -6,10 +6,12 @@
 <Full requested outcome and observable success; authorized effects; exclusions; preserve unrelated edits.>
 
 ## Context
-<Project path and relevant instructions. Reference the discovery packet for current behavior, execution path and baseline instead of repeating it; add only what the packet lacks.>
+<Project path and relevant instructions. Reference the discovery packet for current behavior, execution path and baseline; inherit its reading map in the plan, correcting it where needed. Add only what the packet lacks.>
+
+Navigation: <Optional pointer to the project's navigation rules, e.g. an AGENTS.md section; not a list of tools.>
 
 ## Discovery packet
-<Path to the discovery report the plan was made from (the runner also passes it for --from; list earlier reports when discovery was resumed). The findings the plan relies on, and corrections: packet claims the orchestrator checked and found wrong, gaps the orchestrator filled by direct reads.>
+<Path to the discovery report the plan was made from (the runner also passes it for --from; list earlier reports when discovery was resumed). The findings and reading map the plan carries, corrected where the orchestrator found them wrong; gaps filled by direct reads.>
 
 ## Plan
 <Decisions made from the evidence. For each material decision:

@@ -7,6 +7,10 @@
    - the acceptance commands;
    - explicit stop conditions ("stop and report BLOCKED if …").
 
+   Make stop conditions measurable, such as "more than 120 flagged sites" or "a file fails to parse". A
+   BLOCKED report with counts costs one short `resume` with a decision. A worker that pushes past a wrong
+   assumption costs a whole run.
+
    Tell the worker that the decisions are made and are not to be re-litigated. When a worker has to
    decide architecture itself, rework follows.
 2. **Trust the report; re-verify only on a red flag.** Do not rerun the worker's gates or suites. Read
@@ -33,6 +37,10 @@
    - parallel runs on separate checkouts, one worker per checkout, with an ownership table in a shared
      brief;
    - sequential runs.
+
+   Prepare each parallel checkout with the repository's own setup command, not with ad hoc copies. If a
+   worker reports a missing local prerequisite, the preparation step is at fault. Fix that step, then
+   re-verify only the coverage that was missing.
 
    Short contexts cost less and drift less.
 4. **Cost discipline in every brief.** Include a block like this:

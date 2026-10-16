@@ -11,6 +11,10 @@
    BLOCKED report with counts costs one short `resume` with a decision. A worker that pushes past a wrong
    assumption costs a whole run.
 
+   When a BLOCKED count shows a wide mechanical migration (more than about 100 sites with one rewrite
+   rule), resume with a codemod decision: a scratch script driven by the tool's own machine output, a
+   sample review of the hunks, and a file cap as the new stop condition. Do not hand-migrate.
+
    Tell the worker that the decisions are made and are not to be re-litigated. When a worker has to
    decide architecture itself, rework follows.
 2. **Trust the report; re-verify only on a red flag.** Do not rerun the worker's gates or suites. Read
@@ -41,6 +45,10 @@
    Prepare each parallel checkout with the repository's own setup command, not with ad hoc copies. If a
    worker reports a missing local prerequisite, the preparation step is at fault. Fix that step, then
    re-verify only the coverage that was missing.
+
+   Cap parallel runs on one machine at about 4. More causes spawn-heavy suites to time out and fixed test
+   ports to collide between checkouts. A failure that passes when rerun alone under no load is a load
+   symptom, not a blocker; record it and fix the shared-resource cause (ports, fan-out) in a later run.
 
    Short contexts cost less and drift less.
 4. **Cost discipline in every brief.** Include a block like this:

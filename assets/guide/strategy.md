@@ -1,0 +1,54 @@
+# Delegation strategy (owner policy: decide up front, trust the report, spend little)
+
+1. **The brief carries the thinking.** Make every architecture and contract decision before launch.
+   The brief names:
+   - the owner modules, with `path:start-end`;
+   - the decided contract;
+   - the acceptance commands;
+   - explicit stop conditions ("stop and report BLOCKED if …").
+
+   Tell the worker that the decisions are made and are not to be re-litigated. When a worker has to
+   decide architecture itself, rework follows.
+2. **Trust the report; re-verify only on a red flag.** Do not rerun the worker's gates or suites. Read
+   its report and check:
+   - the status;
+   - every command in its table passed, and any failure was rerun alone and explained;
+   - there are no unexplained skips;
+   - the diff stays inside the brief (`git diff --stat`);
+   - nothing is BLOCKED.
+
+   Re-verify yourself only when one of these occurs:
+   - a red flag in the report;
+   - a merge needed manual conflict resolution (then run the gates and the suites that the resolved
+     files touch);
+   - a later run, gate or user finds a failure.
+
+   Then trace the failure back to the run that introduced it, and fix it with a `resume` brief. A proof
+   that only the orchestrator may run still runs. One example is a project rule that requires a
+   real-environment check the worker is forbidden to do.
+3. **Small runs.** Give each execution run one owner and about 100 changed files at most. Split wider work
+   one of two ways:
+   - parallel runs on separate checkouts, one worker per checkout, with an ownership table in a shared
+     brief;
+   - sequential runs.
+
+   Short contexts cost less and drift less.
+4. **Cost discipline in every brief.** Include a block like this:
+   - Redirect suite and gate output to log files, and read only the summary lines.
+   - Read slices of at most about 150 lines.
+   - Re-read a range right before you patch it.
+   - Run each full suite once, at the end, and rerun only the failures alone.
+   - Do not write review scripts that run longer than about 5 minutes.
+
+   After each run, read `{{CLI}} insights <ref>`. For every repeated waste it reports (truncated output,
+   stale patches, slow calls), add one rule to the next brief.
+5. **Escalation, not a quota workaround.** If a worker fails the same problem twice, take one of two
+   steps:
+   - decide that point yourself and resume with the decision in the brief;
+   - run only that piece as a separate run on a stronger model that the user has approved, and tell the
+     user.
+
+   Quota and authentication failures remain blockers.
+6. **Continuations.** `--from` accepts only a discovery ref. To continue an execution run, use
+   `{{CLI}} resume <ref> --brief <file>`. A resume keeps the run's pinned model. To change the model,
+   launch a new execution run.

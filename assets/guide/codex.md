@@ -1,5 +1,6 @@
 ## Codex worker
 - Without `--model`, the selection comes from `CODEX_HOME/config.toml` (active profile first: model, model_reasoning_effort, model_provider; provider defaults to openai) and is pinned for the run and its resumes. Override with `--model M --provider P --effort none|minimal|low|medium|high|xhigh`; `{{CLI}} models --worker codex` shows the selection.
+- Owner model policy: pass `--model gpt-6.1-sol --effort high` for every discovery and execution run unless the user names another model. Sol costs 1/5 of gpt-6-astra per input/output token and 1/10 per cached token; measured waves cost about 1/7.5 with no observed quality loss on decided briefs. Use gpt-6-astra only under the strategy escalation rule, for that one run, and tell the user.
 - The worker shares the Codex account quota with a Codex orchestrator. "You've hit your usage limit" is a quota blocker.
 - Each run uses sandbox danger-full-access and approval never (discovery too, so shell commands work; the no-edit rule comes from the brief and the working-tree guard). `--mode plan` uses the read-only sandbox, which may reject shell commands on Windows.
 - The worker thread is independent of any orchestrator thread. A worker process tree still alive 30 s after its turn ends is closed; the result comes from the final message, not that forced exit code.

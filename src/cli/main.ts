@@ -145,7 +145,7 @@ const harness = (error: any) => error instanceof HarnessError
 const IDLE_SUBS = 'watch|record-night|doctor|models|list|availability|submit|status|ticket';
 
 export const COMMANDS: Record<string, Command> = {
-  guide: { usage: 'guide [zcode|agy|codex|claude|mcode|idle|monitor|desktop|errors] [--orchestrator claude|codex|generic]', summary: 'Print the operating guide (read once per task).',
+  guide: { usage: 'guide [zcode|agy|codex|claude|mcode|strategy|idle|monitor|desktop|errors] [--orchestrator claude|codex|generic]', summary: 'Print the operating guide (read once per task).',
     values: ['orchestrator'], args: [0, 1],
     run: (o, a) => ({ text: guideText(a[0], oneOf(o, 'orchestrator', ORCHESTRATORS)) }) },
   template: { usage: `template ${TEMPLATES.join('|')}`, summary: 'Print a brief template.', args: [1, 1],

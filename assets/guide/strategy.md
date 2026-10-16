@@ -57,6 +57,9 @@
    - Re-read a range right before you patch it.
    - Run each full suite once, at the end, and rerun only the failures alone.
    - Do not write review scripts that run longer than about 5 minutes.
+   - Wait on the process itself (a foreground command with a timeout, or its exit), never with `sleep`
+     loops, including while another checkout holds a shared resource. Naming the substitute matters:
+     "no fixed sleeps" alone still cost workers 15-20 minutes each.
 
    After each run, read `{{CLI}} insights <ref>`. For every repeated waste it reports (truncated output,
    stale patches, slow calls), add one rule to the next brief.

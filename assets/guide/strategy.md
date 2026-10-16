@@ -15,6 +15,12 @@
    rule), resume with a codemod decision: a scratch script driven by the tool's own machine output, a
    sample review of the hunks, and a file cap as the new stop condition. Do not hand-migrate.
 
+   When a detector has just been widened, a count stop on its raw output measures imprecision, not
+   migration size. Before resuming, group the hits by operand and trace the largest groups to their source.
+   Fix every false-positive class in one resume (for example per-property and per-position taint), and
+   let the same resume migrate what remains. Fixing one class per resume took three runs (203 → 152 →
+   119 → 0 hits).
+
    Tell the worker that the decisions are made and are not to be re-litigated. When a worker has to
    decide architecture itself, rework follows.
 
@@ -66,7 +72,9 @@
    Text-clean merges can still break semantically. If one wave changes a shared helper's signature, give
    every other use of that helper to the same wave in the ownership table, or plan the reconciliation as
    an orchestrator step and run that file's suite after the merge. A timing stop condition must say
-   "measured alone": under parallel load a 450 ms step read 3.2 s.
+   "measured alone": under parallel load a 450 ms step read 3.2 s. When one wave moves code that another
+   wave edits in place, resolve the conflict to the move. Then reapply the other wave's edit to the moved
+   code and rerun that wave's checker on the merged tree. A sweep scanner catches what the move dropped.
 
    A wave that depends on another wave's unmerged change branches from the integration branch that
    already holds it, not from the main branch, and merges after it.

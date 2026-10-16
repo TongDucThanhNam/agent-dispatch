@@ -21,6 +21,8 @@
    - a red flag in the report;
    - a merge needed manual conflict resolution (then run the gates and the suites that the resolved
      files touch);
+   - you integrated parallel runs (run the gates, not the suites, once on the merged tree: a rule from
+     one run can reject a file from another even when every run passed alone);
    - a later run, gate or user finds a failure.
 
    Then trace the failure back to the run that introduced it, and fix it with a `resume` brief. A proof

@@ -17,6 +17,17 @@
 
    Tell the worker that the decisions are made and are not to be re-litigated. When a worker has to
    decide architecture itself, rework follows.
+
+   Brief the class, not the instance. When a finding is one member of a class (a missing resource owner,
+   an unbounded assertion, an unparsed input form), the brief asks for a completeness contract: a test or
+   a rule with no ignores that fails on every bypass form you can list. Make it measure the class, fix
+   it, and re-measure to 0. A rule that matches named shapes is not complete just because it has no
+   ignores; list the aliases, conversions and import forms it must follow. Fixing only the cited sites
+   let later reviews find more of the same class four times in a row.
+
+   Put a cost ceiling on every generic mechanism (a scanner, a trigger, a contract): the affected command
+   measured alone before and after, with a ratio limit. A correct generic trigger once cost 5×; a
+   profile-first `resume` brought it below the original cost.
 2. **Trust the report; re-verify only on a red flag.** Do not rerun the worker's gates or suites. Read
    its report and check:
    - the status;
@@ -49,11 +60,16 @@
    Cap parallel runs on one machine at about 4. More causes spawn-heavy suites to time out and fixed test
    ports to collide between checkouts. A failure that passes when rerun alone under no load is a load
    symptom, not a blocker; record it and fix the shared-resource cause (ports, fan-out) in a later run.
+   That applies to timeouts and port collisions only. An assertion failure that passes alone is a race
+   or shared state: trace it to its cause, never call it noise.
 
    Text-clean merges can still break semantically. If one wave changes a shared helper's signature, give
    every other use of that helper to the same wave in the ownership table, or plan the reconciliation as
    an orchestrator step and run that file's suite after the merge. A timing stop condition must say
    "measured alone": under parallel load a 450 ms step read 3.2 s.
+
+   A wave that depends on another wave's unmerged change branches from the integration branch that
+   already holds it, not from the main branch, and merges after it.
 
    Short contexts cost less and drift less.
 4. **Cost discipline in every brief.** Include a block like this:

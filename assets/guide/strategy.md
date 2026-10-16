@@ -50,6 +50,11 @@
    ports to collide between checkouts. A failure that passes when rerun alone under no load is a load
    symptom, not a blocker; record it and fix the shared-resource cause (ports, fan-out) in a later run.
 
+   Text-clean merges can still break semantically. If one wave changes a shared helper's signature, give
+   every other use of that helper to the same wave in the ownership table, or plan the reconciliation as
+   an orchestrator step and run that file's suite after the merge. A timing stop condition must say
+   "measured alone": under parallel load a 450 ms step read 3.2 s.
+
    Short contexts cost less and drift less.
 4. **Cost discipline in every brief.** Include a block like this:
    - Redirect suite and gate output to log files, and read only the summary lines.

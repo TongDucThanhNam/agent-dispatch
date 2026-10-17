@@ -21,6 +21,15 @@
    let the same resume migrate what remains. Fixing one class per resume took three runs (203 → 152 →
    119 → 0 hits).
 
+   When a detector's hits shift with unrelated production changes, stop the precision rounds. Move
+   enforcement to the entry point instead: a drop-in wrapper, plus a native lint ban on the import it
+   replaces. A whole-program inference is the wrong owner. In one case, a new fixture process flagged
+   1057 unrelated assertions, and one FFI call later flagged 405 more.
+
+   When a decision depends on a bound the worker must find (a replay window, a latency or cost target),
+   give a fallback value instead of a stop: "target X; if unreachable, keep the best measured result and
+   report the profile". Bare stops on such sub-questions cost two extra resumes in each of two waves.
+
    Tell the worker that the decisions are made and are not to be re-litigated. When a worker has to
    decide architecture itself, rework follows.
 
@@ -75,6 +84,8 @@
    "measured alone": under parallel load a 450 ms step read 3.2 s. When one wave moves code that another
    wave edits in place, resolve the conflict to the move. Then reapply the other wave's edit to the moved
    code and rerun that wave's checker on the merged tree. A sweep scanner catches what the move dropped.
+   A wave that branched before the move still imports the old path in files that merge without
+   conflict. After the merge, search for the removed path, not only for conflict markers.
 
    A wave that depends on another wave's unmerged change branches from the integration branch that
    already holds it, not from the main branch, and merges after it.
@@ -101,4 +112,7 @@
    Quota and authentication failures remain blockers.
 6. **Continuations.** `--from` accepts only a discovery ref. To continue an execution run, use
    `{{CLI}} resume <ref> --brief <file>`. A resume keeps the run's pinned model. To change the model,
-   launch a new execution run.
+   launch a new execution run. A resume replays the whole session. After three resumes, one run sent about
+   190K tokens per request and spent 71% of its time waiting for the first token (median 51 s). For a
+   further round of a long run, launch a fresh execution run instead. Its handoff brief names the report
+   path, the uncommitted files (`git status --short`), and the decisions made so far.

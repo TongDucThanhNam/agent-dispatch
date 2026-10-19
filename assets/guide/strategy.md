@@ -116,3 +116,8 @@
    190K tokens per request and spent 71% of its time waiting for the first token (median 51 s). For a
    further round of a long run, launch a fresh execution run instead. Its handoff brief names the report
    path, the uncommitted files (`git status --short`), and the decisions made so far.
+
+   When a resume authorizes something that the original brief or common rules forbade, name the rule it
+   supersedes and the exact scope of the override. A resume that only said "you are authorized to change
+   how fixture lifetimes are chosen" ended again as BLOCKED within 43 s, citing the original "never
+   change a timeout".

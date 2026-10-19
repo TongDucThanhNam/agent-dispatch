@@ -105,6 +105,12 @@
      loops, including while another checkout holds a shared resource. Naming the substitute matters:
      "no fixed sleeps" alone still cost workers 15-20 minutes each.
 
+   Do not forbid the repository's affected-scoped handoff gate to save time. A brief that replaces it with a
+   list of named checks loses every gate the list forgets. In one wave of three runs, none ran the
+   dependency-boundary gate or the suite that pins lane selection. The integration verify then found four
+   failures, which cost a fix run and a second full verify. Allow the handoff gate once; forbid only full
+   suites.
+
    After each run, read `{{CLI}} insights <ref>`. For every repeated waste it reports (truncated output,
    stale patches, slow calls), add one rule to the next brief.
 5. **Escalation, not a quota workaround.** If a worker fails the same problem twice, take one of two

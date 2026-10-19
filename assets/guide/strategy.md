@@ -63,6 +63,11 @@
    `git log <base>..HEAD -- <failing file>`. One run called a gate failure "unrelated", but its own commit
    had added the `Bun.sleep(50)` poll that the gate rejected.
 
+   Before you brief a fix run, collect every failure. A verify that stops at its first failing step lists only
+   that step. Rerun the suites with the runner's continue-on-failure mode, and classify each failure alone. One
+   fix run launched on the first list missed four failures that `--continue` then found. Those four cost a
+   resume and a second handoff gate.
+
    Then trace the failure back to the run that introduced it, and fix it with a `resume` brief. A proof
    that only the orchestrator may run still runs. One example is a project rule that requires a
    real-environment check the worker is forbidden to do.

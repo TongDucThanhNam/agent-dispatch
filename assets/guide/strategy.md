@@ -43,6 +43,11 @@
    Put a cost ceiling on every generic mechanism (a scanner, a trigger, a contract): the affected command
    measured alone before and after, with a ratio limit. A correct generic trigger once cost 5×; a
    profile-first `resume` brought it below the original cost.
+
+   Size the ceiling against the benefit, not against a small base. A ratio on a short run turns
+   milliseconds into a veto. In one case, "at most 5% of a 1-file run" stopped a cached 0.58 s
+   classification, even though it removed a 1,713 s queue wait. Use an absolute bound per invocation,
+   and a ratio only on the large selection that the mechanism serves.
 2. **Trust the report; re-verify only on a red flag.** Do not rerun the worker's gates or suites. Read
    its report and check:
    - the status;
@@ -136,3 +141,7 @@
    supersedes and the exact scope of the override. A resume that only said "you are authorized to change
    how fixture lifetimes are chosen" ended again as BLOCKED within 43 s, citing the original "never
    change a timeout".
+
+   A resumed worker counts its budget from the first command of the original run. Give every resume
+   brief its own budget, and say that it starts with the resume's first command. One resume without that
+   line ended after 2 minutes, with no edits, reporting "budget exhausted".

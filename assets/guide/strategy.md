@@ -121,6 +121,11 @@
    failures, which cost a fix run and a second full verify. Allow the handoff gate once; forbid only full
    suites.
 
+   A stacked branch, whose base has not merged yet, makes the handoff select everything. Do not answer that by
+   forbidding the gate. Point the gate at the stack's base, or make the gate accept a base. Three stacked runs
+   that skipped it let three tree-wide policy failures through to the integration verify: a scratch-path rule, a
+   deadline rule, and a helper declaration.
+
    After each run, read `{{CLI}} insights <ref>`. For every repeated waste it reports (truncated output,
    stale patches, slow calls), add one rule to the next brief.
 5. **Escalation, not a quota workaround.** If a worker fails the same problem twice, take one of two

@@ -40,10 +40,10 @@ restore refuses changed archives. Reinstall old bridges for turn-ownership-v2.
 
 ```sh
 agent-dispatch template consult
-agent-dispatch launch --worker gemini --stage discovery --brief question.md --context context.md --timeout 900 --notify none
+agent-dispatch launch --worker gemini --stage discovery --brief question.md --context context.md --timeout 2700 --notify none
 agent-dispatch wait REF
 agent-dispatch report REF
-agent-dispatch resume REF --brief challenge.md --timeout 900
+agent-dispatch resume REF --brief challenge.md
 agent-dispatch resume NEXT_REF --brief apply-our-numbers.md --context measurements.md
 agent-dispatch stop REF
 ```
@@ -53,6 +53,7 @@ or format rules. --context FILE prepends `=== Context ===`, its text, then
 `=== Question ===` and the unchanged question. No coding preamble, local paths or
 implicit repository content. Briefs: 12,000 characters; combined: 100,000, never
 truncated. Context is explicit each turn, not reused on resume; timeout is inherited.
+Research turns need --timeout 2700 (max 3600); the 300 s default is too short.
 
 The consult template covers goals, facts, attempts, constraints and questions;
 requests [source]/[common practice]/[guess], confidence, numbers, no widgets or

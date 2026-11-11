@@ -19,6 +19,8 @@ test('Gemini guide uses the autonomous chat worker without coding briefs', () =>
   expect(guide).toContain('gemini select');
   expect(guide).toContain('gemini start');
   expect(guide).toContain('hidden and non-focusable');
+  expect(guide).toContain('--timeout 2700');
+  expect(guide).not.toContain('--timeout 900');
   expect(WORKERS as string[]).toContain('gemini');
 });
 
@@ -61,6 +63,9 @@ test('Gemini installation is scoped and idempotent, without changing other skill
     expect(skill).toContain('Never launch Gemini.exe');
     expect(skill).not.toContain('template discovery');
     expect(skill).toContain('--worker gemini');
+    expect(skill).toContain('--timeout 2700');
+    expect(skill).toContain('inherits the timeout');
+    expect(skill).not.toContain('--timeout 900');
     const yaml = fs.readFileSync(path.join(dir, 'agents', 'openai.yaml'), 'utf8');
     expect(yaml).toContain('$ask-gemini-app');
     expect(yaml).toContain('allow_implicit_invocation: false');

@@ -5,8 +5,8 @@ import { CliError } from '../protocol/errors.ts';
 
 export const ORCHESTRATORS = ['claude', 'codex', 'generic'] as const;
 export type Orchestrator = typeof ORCHESTRATORS[number];
-export const TOPICS = ['zcode', 'agy', 'codex', 'claude', 'mcode', 'strategy', 'idle', 'monitor', 'desktop', 'errors'] as const;
-export const TEMPLATES = ['discovery', 'assignment', 'review'] as const;
+export const TOPICS = ['zcode', 'agy', 'codex', 'claude', 'mcode', 'grok', 'gemini', 'strategy', 'idle', 'monitor', 'desktop', 'errors'] as const;
+export const TEMPLATES = ['discovery', 'assignment', 'review', 'consult'] as const;
 
 /** Which agent is running the CLI; decides how waiting for a run is described. */
 export function detectOrchestrator(env: NodeJS.ProcessEnv = process.env): Orchestrator {
@@ -29,7 +29,7 @@ function waiting(orchestrator: Orchestrator) {
 export function guideText(topic?: string, orchestrator: Orchestrator = detectOrchestrator()) {
   if (topic && !(TOPICS as readonly string[]).includes(topic))
     throw new CliError('USAGE', `Unknown guide topic "${topic}".`, `Topics: ${TOPICS.join(', ')}`);
-  if (topic && !WORKERS.includes(topic as WorkerKind)) return read('guide', `${topic}.md`).replaceAll('{{CLI}}', CLI_NAME);
+  if (topic && (topic === 'gemini' || !WORKERS.includes(topic as WorkerKind))) return read('guide', `${topic}.md`).replaceAll('{{CLI}}', CLI_NAME);
   const worker = topic ?? '<worker>';
   const core = read('guide', 'core.md').replace('{{WAITING}}', waiting(orchestrator));
   return (topic ? `${core.trimEnd()}\n\n${read('guide', `${topic}.md`)}` : core)

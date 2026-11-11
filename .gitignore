@@ -1,7 +1,8 @@
 node_modules/
-.zcode-dispatch/
+.agent-dispatch/
 .tmp/
 *.log
 coverage/
+__pycache__/
 work/
 assets/web/dashboard/

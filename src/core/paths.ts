@@ -7,8 +7,8 @@ export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.
 export const CLI_ENTRY = path.join(PACKAGE_ROOT, 'src', 'cli', 'main.ts');
 export const asset = (...parts: string[]) => path.join(PACKAGE_ROOT, 'assets', ...parts);
 
-/** Records stay under the historical names so older monitors and runs keep working. */
-export const RECORD_DIR = '.zcode-dispatch';
+/** Worker-neutral directory for project run records and the active-run lock. */
+export const RECORD_DIR = '.agent-dispatch';
 export const LOCK_FILE = 'active-run.lock';
 export const home = (...parts: string[]) => path.join(os.homedir(), ...parts);
 

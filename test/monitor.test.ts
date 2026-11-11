@@ -198,7 +198,7 @@ test('full local runner captures a report, queues one review callback and record
     async runCallback(thread, message) { queued.push({ thread, message }); return { ok: true, exitCode: 0 }; }
   });
   assert.equal(state.status, 'ready_for_review'); assert.equal(state.workerExited, true); assert.equal(state.exitCode, 0); assert.equal(queued.length, 1);
-  assert.match(queued[0].message, /Read its report first/); assert.match(queued[0].message, /agent-dispatch report completed/); assert.ok(!fs.existsSync(path.join(config.project, '.zcode-dispatch/active-run.lock')));
+  assert.match(queued[0].message, /Read its report first/); assert.match(queued[0].message, /agent-dispatch report completed/); assert.ok(!fs.existsSync(path.join(config.project, '.agent-dispatch/active-run.lock')));
   const review = path.join(config.project, 'review.md'); fs.writeFileSync(review, 'Fixture verified.');
   assert.equal(markReview(config.runDir, 'accepted', review).status, 'complete');
 });
@@ -260,7 +260,7 @@ test('invalid launch input does not start a background runner', async () => {
 
 test('a racing duplicate reports failure without starting a worker or waking Astra again', async () => {
   const owner = configFor('race-owner'), lock = acquireProjectLock(owner);
-  const duplicate = validateConfig({ ...owner, runId: 'race-duplicate', runDir: path.join(owner.project, '.zcode-dispatch/race-duplicate') });
+  const duplicate = validateConfig({ ...owner, runId: 'race-duplicate', runDir: path.join(owner.project, '.agent-dispatch/race-duplicate') });
   let spawned = 0, notified = 0;
   try {
     const result = await supervise(duplicate, { spawnWorker() { spawned++; throw new Error('Must not start'); }, async runCallback() { notified++; return { ok: true }; } });

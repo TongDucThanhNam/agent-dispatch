@@ -9,7 +9,7 @@ import { CliError } from '../protocol/errors.ts';
 const norm = (p: string) => process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p);
 const isRunDir = (dir: string) => fs.existsSync(path.join(dir, 'config.json'));
 
-/** Nearest `.zcode-dispatch` records directory at or above `start`, or null. */
+/** Nearest `.agent-dispatch` records directory at or above `start`, or null. */
 export function findRecords(start: string): string | null {
   let dir = path.resolve(start);
   for (;;) {

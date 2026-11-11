@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { asset, CLI_ENTRY } from '../core/paths.ts';
-import { shortRef } from '../core/config.ts';
+import { shortRef, workerLabel } from '../core/config.ts';
 import { openTelemetry, clean } from './monitor-core.ts';
 import { writeFileAtomic } from '../core/fsutil.ts';
 import { Readable } from 'node:stream';
@@ -34,7 +34,7 @@ const readReport = file => { try { return fs.statSync(file).size <= 65_536 ? cle
 export const isAlive = pid => { if (!Number.isInteger(pid) || pid < 1) return false; try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const terminal = new Set(['blocked', 'cancelled', 'worker_failed', 'missing_report', 'ready_for_review', 'complete', 'changes_required']);
 const keyFor = dir => crypto.createHash('sha256').update(process.platform === 'win32' ? dir.toLowerCase() : dir).digest('hex').slice(0, 24);
-const labelOf = config => ({ agy: 'AGY', codex: 'Codex', claude: 'Claude Code' })[config.workerKind] ?? 'ZCode';
+const labelOf = workerLabel;
 const keyOf = dir => { try { return keyFor(fs.realpathSync(dir)); } catch { return keyFor(path.resolve(dir)); } };
 // The brief's first heading names the task ("# Run 4: Simple mode …"). The saved assignment never changes once written.
 const tasks = new Map<string, string | null>();

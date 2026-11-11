@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {syncBuiltinESMExports} from 'node:module';
 const normalize = file => {
   if (typeof file !== 'string' && !(file instanceof URL)) return null;
@@ -65,4 +65,6 @@ if (path.basename(process.argv[1] ?? '').toLowerCase() === 'zcode.cjs' && proces
   fs.readFileSync = (file, options) => overlay(file, options) ?? readSync(file, options);
   fsp.readFile = async (file, options) => overlay(file, options) ?? readPromise(file, options);
   syncBuiltinESMExports();
+  const contextLoader = path.join(os.homedir(), '.zcode/context-tuning/loader.mjs');
+  if (fs.existsSync(contextLoader)) await import(pathToFileURL(contextLoader).href);
 }

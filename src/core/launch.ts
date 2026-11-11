@@ -14,7 +14,10 @@ import { verifyNative } from '../workers/zcode/native.ts';
 import { readAgySelection } from '../workers/agy/adapter.ts';
 import { readCodexSelection } from '../workers/codex/adapter.ts';
 import { readClaudeRuntime } from '../workers/claude/adapter.ts';
+import { readGrokRuntime } from '../workers/grok/adapter.ts';
 import { probeMcode, resolveMcodeSelection, verifyMcodeSession, MCODE_API } from '../workers/mcode/desktop.ts';
+import { probeGemini, geminiModelId } from '../workers/gemini/desktop.ts';
+import { consultationPrompt } from '../workers/gemini/prompt.ts';
 import { CliError, labelled, labelledAsync } from '../protocol/errors.ts';
 
 // Pins the default Codex selection once so resume and the model/provider check use the same values.
@@ -56,11 +59,12 @@ const assignmentOf = (file: string, stage: string) => labelled('ASSIGNMENT_INVAL
  * Everything a launch validates before any process starts: config, lock,
  * brief, discovery link, callback executable and worker/model availability.
  */
-export async function prepare(raw: any, { checkLock = true } = {}) {
+export async function prepare(raw: any, { checkLock = true, probeGeminiRuntime = probeGemini } = {}) {
   const config = validateConfig(raw);
-  if (checkLock && fs.existsSync(lockPathFor(config.project)))
+  if (checkLock && config.workerKind !== 'gemini' && fs.existsSync(lockPathFor(config.project)))
     throw lockHeld(readLock(config.project), 'A managed run already holds this project lock. Inspect it before launching another.');
   const assignment = assignmentOf(config.promptFile, config.stage);
+  if (config.workerKind === 'gemini') labelled('ASSIGNMENT_INVALID', () => consultationPrompt(config, assignment));
   const discovery = linkDiscovery(config);
   if (config.notify && !fs.existsSync(config.codexExe))
     throw new CliError('WORKER_UNAVAILABLE', 'Codex callback executable is missing.', 'Use --notify none, or pass --config with codexExe.');
@@ -76,6 +80,18 @@ export async function prepare(raw: any, { checkLock = true } = {}) {
     if (!fs.existsSync(config.claudeExe)) throw new CliError('WORKER_UNAVAILABLE', 'Claude executable is missing.', 'Install Claude Code or set claudeExe in --config.');
     const runtime = await readClaudeRuntime(config.claudeExe);
     if (!runtime.ok) throw new CliError('WORKER_UNAVAILABLE', runtime.error!, 'Claude Code 2.1.259 or later is required; update the CLI.');
+  } else if (config.workerKind === 'grok') {
+    if (!fs.existsSync(config.grokExe)) throw new CliError('WORKER_UNAVAILABLE', 'Grok executable is missing.', 'Install Grok Build or set grokExe in --config.');
+    const runtime = await readGrokRuntime(config.grokExe);
+    if (!runtime.ok) throw new CliError('WORKER_UNAVAILABLE', runtime.error!, 'Update the native grok CLI.');
+  } else if (config.workerKind === 'gemini') {
+    const runtime = await labelledAsync('WORKER_UNAVAILABLE', () => probeGeminiRuntime(config), 'Run agent-dispatch gemini setup, then agent-dispatch gemini start for quiet startup.');
+    if (!runtime.ready || runtime.busy) throw new CliError('RUN_ACTIVE', 'Gemini is not ready or the selected backend already owns a turn.');
+    if (config.geminiBackend === 'uia') {
+      if (config.geminiModel && config.geminiModel !== runtime.model) throw new CliError('MODEL_UNAVAILABLE', 'The legacy UIA backend requires manual model selection.');
+      config.geminiModel = runtime.model; config.expectedModel = geminiModelId(runtime.model);
+    } else if (!runtime.capabilities?.includes('thinking-level-selection') || !runtime.capabilities?.includes('non-activating-window') || !runtime.capabilities?.includes('turn-ownership-v2'))
+      throw new CliError('WORKER_UNAVAILABLE', 'Restore and reinstall the Gemini bridge for marker ownership and pre-send safety checks.');
   } else if (config.workerKind === 'mcode') {
     const runtime = await labelledAsync('WORKER_UNAVAILABLE', () => probeMcode(config), 'Run agent-dispatch mcode setup. No standalone CLI fallback is used.');
     labelled('MODEL_UNAVAILABLE', () => resolveMcodeSelection(config, runtime));
@@ -94,7 +110,7 @@ const notifyOf = (config: any) => config.notify ? 'codex' : 'none';
 /** Dry run of launch: validates everything and starts nothing. */
 export async function check(raw: any) {
   const { config, assignment, discovery } = await prepare(raw, { checkLock: false });
-  const lock = readLock(config.project);
+  const lock = config.workerKind === 'gemini' ? null : readLock(config.project);
   return { valid: true, worker: config.workerKind, stage: config.stage, ...selectionOf(config), mode: config.mode, notify: notifyOf(config),
     ...(discovery ? { fromDiscovery: shortRef(path.basename(discovery.runDir)), discoveryDrift: capChanged(discovery.drift) } : {}),
     assignmentCharacters: assignment.length, maxAssignmentCharacters: MAX_ASSIGNMENT_CHARACTERS,
@@ -141,10 +157,10 @@ export async function launch(raw: any, { startupPolls = 100 } = {}) {
 }
 
 /** Continues the exact saved worker session in a new run with a follow-up brief; stage and mode are kept. */
-export async function resume(previousDir: string, briefFile: string) {
+export async function resume(previousDir: string, briefFile: string, options: { geminiContextFile?: string; geminiTimeoutSeconds?: number; geminiAllowEmails?: string[] } = {}, launchRun = launch) {
   const previous = readJson(path.join(previousDir, 'config.json')), status = compactStatus(previousDir);
   if (!status.workerExited) throw new CliError('RUN_ACTIVE', 'Cannot resume until the old worker has exited.', `${CLI_NAME} wait ${shortRef(previous.runId)}`);
   if (!status.sessionId) throw new CliError('RUN_NOT_ACTIVE', 'The run has no recorded worker session to resume.', 'Launch a fresh run instead.');
   // A discovery session is not turned into execution (launch --from instead).
-  return launch({ ...previous, runId: undefined, runDir: undefined, mcodeTurnId: undefined, promptFile: path.resolve(briefFile), resumeSessionId: status.sessionId, discoveryDrift: null });
+  return launchRun({ ...previous, ...(previous.workerKind === 'gemini' ? { geminiContextFile: null, geminiAllowEmails: [] } : {}), ...options, runId: undefined, runDir: undefined, mcodeTurnId: undefined, promptFile: path.resolve(briefFile), resumeSessionId: status.sessionId, discoveryDrift: null });
 }

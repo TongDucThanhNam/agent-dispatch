@@ -20,7 +20,7 @@ const temp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'zcode-trajectory-test-
 const save = (file, data) => fs.writeFileSync(file, JSON.stringify(data));
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 function fixture(root, name, extra = {}) {
-  const project = path.join(root, name), runDir = path.join(project, '.zcode-dispatch', name), now = Date.now();
+  const project = path.join(root, name), runDir = path.join(project, '.agent-dispatch', name), now = Date.now();
   fs.mkdirSync(runDir, { recursive: true });
   const config = { runId: name, runDir, project, dbPath: path.join(project, 'data.sqlite'), expectedModel: 'test-model' };
   const state = { runId: name, startedAt: now, updatedAt: now, status: 'running', phase: 'working', workerExited: false,

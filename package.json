@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch",
   "version": "1.0.0",
-  "description": "Stable CLI and JSON protocol for delegating discovery and execution runs to ZCode, AGY, Codex, Claude Code and MiniMax Code Desktop workers.",
+  "description": "Stable CLI and JSON protocol for delegating discovery and execution runs to ZCode, AGY, Codex, Claude Code, MiniMax Code Desktop and Grok Build workers.",
   "private": true,
   "type": "module",
   "bin": {

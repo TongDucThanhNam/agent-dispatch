@@ -15,9 +15,12 @@ import { registerRun, ensureDashboard, readRun, publicRun, serveHub, defaultRoot
 import { exportRunToFile } from '../monitor/session-export.ts';
 import { desktopHandoff } from '../workers/zcode/desktop.ts';
 import { setupMcode, probeMcode, mcodePaths, verifyMcodeSession, MCODE_API } from '../workers/mcode/desktop.ts';
+import { setupGemini, probeGemini, geminiPaths, selectGemini, startGeminiBackground } from '../workers/gemini/desktop.ts';
+import { restoreGeminiBridge } from '../workers/gemini/bridge.ts';
+import { geminiRecoveredReport } from '../workers/gemini/recovery.ts';
 import { runWatch, recordNight, installSignalCleanup, validateId, validateIsoDeadline, validateNight, HarnessError } from '../idle/watch.ts';
 import { guideText, templateText, detectOrchestrator, ORCHESTRATORS, TOPICS, TEMPLATES } from '../guide/guide.ts';
-import { installSkills } from '../skills/install.ts';
+import { installSkills, SKILLS } from '../skills/install.ts';
 import { doctor, models, hubStatus, hubRestart } from './maintenance.ts';
 import { parseArgs, usageError, str, int, oneOf, type CommandSpec, type Opts } from './args.ts';
 import { CliError, toCliError, labelled, labelledAsync } from '../protocol/errors.ts';
@@ -30,10 +33,10 @@ type Result = { data: unknown; next?: string[] } | { text: string } | void;
 interface Command extends CommandSpec { run(opts: Opts, args: string[]): Promise<Result> | Result }
 
 const C = CLI_NAME;
-const LAUNCH_VALUES = ['worker', 'stage', 'brief', 'project', 'from', 'model', 'effort', 'provider', 'mode', 'notify', 'thread', 'callback-model', 'config'];
+const LAUNCH_VALUES = ['worker', 'stage', 'brief', 'project', 'from', 'model', 'effort', 'provider', 'mode', 'notify', 'thread', 'callback-model', 'config', 'context', 'timeout', 'allow-email'];
 const LAUNCH_ALIASES = { 'prompt-file': 'brief', 'from-discovery': 'from' };
 const REF_ALIASES = { 'run-dir': 'ref' };
-const LAUNCH_USAGE = '--worker zcode|agy|codex|claude|mcode --stage discovery|execution --brief FILE [--from REF] [--project DIR] [--model ID] [--effort LEVEL] [--provider ID] [--mode yolo|plan] [--notify auto|codex|none] [--thread UUID]';
+const LAUNCH_USAGE = '--worker zcode|agy|codex|claude|mcode|grok|gemini --stage discovery|execution --brief FILE [--from REF] [--project DIR] [--model ID] [--effort LEVEL] [--provider ID] [--mode yolo|plan] [--notify auto|codex|none] [--thread UUID] [--context FILE] [--timeout SECONDS] [--allow-email ADDRESS[,ADDRESS...]] (Gemini only)';
 
 // Run commands accept the ref positionally or through the historical --run-dir option.
 function refOf(opts: Opts, args: string[]) {
@@ -49,6 +52,16 @@ function notifyOf(opts: Opts) {
   if (mode === 'none') return { notify: false, threadId: null };
   if (mode === 'codex') return { notify: true, threadId: thread ?? null };
   return UUID.test(thread ?? '') ? { notify: true, threadId: thread } : { notify: false, threadId: null };
+}
+
+/** Email exceptions and context apply only to this turn; timeout is inherited on resume. */
+function geminiOptions(opts: Opts) {
+  const context = str(opts, 'context'), emails = str(opts, 'allow-email');
+  const timeout = int(opts, 'timeout', { min: 10, max: 3600 });
+  if (context !== undefined && !context.trim()) throw new CliError('USAGE', '--context requires a file.');
+  return { ...(context !== undefined ? { geminiContextFile: path.resolve(context) } : {}),
+    ...(timeout !== undefined ? { geminiTimeoutSeconds: timeout } : {}),
+    ...(emails !== undefined ? { geminiAllowEmails: emails.split(',').map(s => s.trim()) } : {}) };
 }
 
 /** Maps launch/check options to the raw run configuration. `--config FILE` is the advanced, exclusive form. */
@@ -69,7 +82,7 @@ function launchInput(opts: Opts) {
   return { project, promptFile: path.resolve(brief), workerKind: worker, stage, ...(from ? { discoveryRunDir: from } : {}),
     ...(str(opts, 'model') ? { model: str(opts, 'model') } : {}), ...(str(opts, 'effort') ? { effort: str(opts, 'effort') } : {}),
     ...(str(opts, 'provider') ? { provider: str(opts, 'provider') } : {}), mode: str(opts, 'mode') ?? 'yolo',
-    ...(str(opts, 'callback-model') ? { callbackModel: str(opts, 'callback-model') } : {}), ...notifyOf(opts) };
+    ...(str(opts, 'callback-model') ? { callbackModel: str(opts, 'callback-model') } : {}), ...notifyOf(opts), ...geminiOptions(opts) };
 }
 
 /** Suggested follow-up commands for a run summary; kept short so agents can act without re-reading the guide. */
@@ -78,6 +91,10 @@ function nextFor(s: any): string[] | undefined {
   if (!s.settled) return s.notify === 'codex' && detectOrchestrator() === 'codex' ? undefined : [`${C} wait ${r}`];
   const next: string[] = [];
   if (s.report) next.push(`${C} report ${r}`);
+  if (s.worker === 'gemini') {
+    if (s.sessionId && s.workerExited) next.push(`${C} resume ${r} --brief <follow-up.md>`);
+    return next.length ? next : undefined;
+  }
   if (s.stage === 'discovery' && s.status === 'ready_for_review')
     next.push(`${C} template assignment`, `${C} launch --worker ${s.worker} --from ${r} --brief <plan.md>`);
   else if (s.sessionId && s.workerExited && !['ready_for_review', 'complete'].includes(s.status)) next.push(`${C} resume ${r} --brief <follow-up.md>`);
@@ -121,7 +138,13 @@ async function report(runDir: string, opts: Opts) {
   try { text = fs.readFileSync(file, 'utf8').replace(/^﻿/, ''); }
   catch {
     const s = statusSummary(runDir);
-    throw new CliError('REPORT_MISSING', s.settled ? 'The run ended without a worker report.' : 'The run has no report yet.',
+    let result: any; try { result = readJson(path.join(runDir, 'result.json')); } catch {}
+    if (s.worker === 'gemini' && result?.isError) {
+      const recovered = geminiRecoveredReport(result);
+      text = recovered ?? ('Gemini consultation failed; no verified answer is returned.\nOwnership: ' + (result.ownership ?? 'unverified') +
+        '\nSession: ' + (result.sessionId ?? 'unknown') + '\nChat: ' + (result.url ?? 'unknown') + '\n' + (result.error?.message ?? '') +
+        '\nInspect this chat before an explicit resume; never resend automatically.\n');
+    } else throw new CliError('REPORT_MISSING', s.settled ? 'The run ended without a worker report.' : 'The run has no report yet.',
       s.settled ? `Inspect it with: ${C} status ${s.ref}` : `Wait for it: ${C} wait ${s.ref}`, { status: s.status });
   }
   const max = int(opts, 'max-chars') ?? 0;
@@ -145,7 +168,7 @@ const harness = (error: any) => error instanceof HarnessError
 const IDLE_SUBS = 'watch|record-night|doctor|models|list|availability|submit|status|ticket';
 
 export const COMMANDS: Record<string, Command> = {
-  guide: { usage: 'guide [zcode|agy|codex|claude|mcode|strategy|idle|monitor|desktop|errors] [--orchestrator claude|codex|generic]', summary: 'Print the operating guide (read once per task).',
+  guide: { usage: 'guide [zcode|agy|codex|claude|mcode|grok|gemini|strategy|idle|monitor|desktop|errors] [--orchestrator claude|codex|generic]', summary: 'Print the operating guide (read once per task).',
     values: ['orchestrator'], args: [0, 1],
     run: (o, a) => ({ text: guideText(a[0], oneOf(o, 'orchestrator', ORCHESTRATORS)) }) },
   template: { usage: `template ${TEMPLATES.join('|')}`, summary: 'Print a brief template.', args: [1, 1],
@@ -180,11 +203,11 @@ export const COMMANDS: Record<string, Command> = {
     } },
   stop: { usage: 'stop <ref>', summary: "Stop the run's worker through its runner.", values: ['project', 'ref'], aliases: REF_ALIASES, args: [0, 1],
     run: async (o, a) => ({ data: await stopRun(refOf(o, a)) }) },
-  resume: { usage: 'resume <ref> --brief FILE', summary: 'Continue the exact worker session in a new run.', values: ['project', 'ref', 'brief'], aliases: { ...REF_ALIASES, 'prompt-file': 'brief' }, args: [0, 1],
+  resume: { usage: 'resume <ref> --brief FILE [--context FILE] [--timeout SECONDS] [--allow-email ADDRESS[,ADDRESS...]] (Gemini only)', summary: 'Continue the exact worker session in a new run.', values: ['project', 'ref', 'brief', 'context', 'timeout', 'allow-email'], aliases: { ...REF_ALIASES, 'prompt-file': 'brief' }, args: [0, 1],
     run: async (o, a) => {
       const brief = str(o, 'brief');
       if (!brief) throw new CliError('USAGE', '--brief FILE is required.');
-      const receipt = await resume(refOf(o, a), brief);
+      const receipt = await resume(refOf(o, a), brief, geminiOptions(o));
       return { data: receipt, next: launchNext(receipt) };
     } },
   inspect: { usage: 'inspect [--project DIR] [--task-index FILE]', summary: 'Read-only ownership snapshot (locks, desktop/IDLE tasks).', values: ['project', 'task-index'],
@@ -218,7 +241,7 @@ export const COMMANDS: Record<string, Command> = {
       const hub = await labelledAsync('HUB_UNAVAILABLE', () => ensureDashboard());
       return { data: { url: hub.url + (key ? '#run=' + key : ''), ...(runDir ? { ref: shortRef(path.basename(runDir)) } : {}) } };
     } },
-  models: { usage: 'models [--worker zcode|agy|codex|claude|mcode]', summary: 'Available or selected models for a worker.', values: ['worker'],
+  models: { usage: 'models [--worker zcode|agy|codex|claude|mcode|grok|gemini]', summary: 'Available or selected models for a worker.', values: ['worker'],
     run: async o => ({ data: await models(oneOf(o, 'worker', WORKERS) ?? 'zcode') }) },
   doctor: { usage: 'doctor', summary: 'Check runtimes, workers, hub, installed skills and the current lock.',
     run: async () => ({ data: await doctor() }) },
@@ -232,6 +255,19 @@ export const COMMANDS: Record<string, Command> = {
       }
       throw usageError(`Unknown mcode action "${a[0]}".`, COMMANDS.mcode);
     } },
+  gemini: { usage: 'gemini setup|status|restore|select|start [--model LABEL] [--effort low|medium|high] [--bridge|--uia] [--dry-run] [--exe FILE] [--python FILE]', summary: 'Manage Gemini in the background; defaults to 4 Argon + High.', values: ['exe', 'python', 'model', 'effort'], flags: ['bridge', 'uia', 'dry-run'], args: [1, 1],
+    run: async (o, a) => {
+      if (o.bridge && o.uia) throw usageError('Choose one Gemini backend.', COMMANDS.gemini);
+      if (o.uia && (o['dry-run'] || a[0] === 'restore')) throw usageError('Dry-run and restore apply only to the Gemini bridge.', COMMANDS.gemini);
+      if (['select', 'start'].includes(a[0]) && (o.uia || o['dry-run'])) throw usageError('Select/start requires the live bridge and is not a dry-run operation.', COMMANDS.gemini);
+      const paths = geminiPaths({ geminiExe: str(o, 'exe'), geminiPython: str(o, 'python'), geminiBackend: o.uia ? 'uia' : 'bridge' });
+      if (a[0] === 'setup') return { data: await labelledAsync('WORKER_UNAVAILABLE', () => setupGemini({ ...paths, dryRun: !!o['dry-run'] })) };
+      if (a[0] === 'status') return { data: await labelledAsync('WORKER_UNAVAILABLE', () => probeGemini(paths)) };
+      if (a[0] === 'restore') return { data: await labelledAsync('WORKER_UNAVAILABLE', () => restoreGeminiBridge(paths.geminiExe, !!o['dry-run'])) };
+      if (a[0] === 'select') return { data: await labelledAsync('MODEL_UNAVAILABLE', () => selectGemini({ ...paths, model: str(o, 'model'), effort: str(o, 'effort') })) };
+      if (a[0] === 'start') return { data: await labelledAsync('WORKER_UNAVAILABLE', () => startGeminiBackground(paths)) };
+      throw usageError(`Unknown gemini action "${a[0]}".`, COMMANDS.gemini);
+    } },
   idle: { usage: `idle ${IDLE_SUBS} ...`, summary: 'Explicit IDLE queue tasks (see guide idle).', args: [0, Infinity],
     run: () => {} },
   hub: { usage: 'hub status|restart', summary: 'Shared dashboard process (restart refuses while runs are active).', args: [1, 1],
@@ -240,11 +276,11 @@ export const COMMANDS: Record<string, Command> = {
       if (a[0] === 'restart') return { data: await hubRestart() };
       throw usageError(`Unknown hub action "${a[0]}".`, COMMANDS.hub);
     } },
-  skills: { usage: 'skills install [--target claude|codex|all] [--worker zcode|agy|codex|claude|mcode] [--dry-run] [--include-missing] [--force]', summary: 'Replace installed delegate skills with thin CLI pointers (old copies are moved to skill-backups).',
+  skills: { usage: 'skills install [--target claude|codex|all] [--worker zcode|agy|codex|claude|mcode|grok|gemini] [--dry-run] [--include-missing] [--force]', summary: 'Install worker/app skills as thin guide pointers (old copies are moved to skill-backups).',
     values: ['target', 'worker'], flags: ['dry-run', 'include-missing', 'force'], args: [1, 1],
     run: (o, a) => {
       if (a[0] !== 'install') throw usageError(`Unknown skills action "${a[0]}".`, COMMANDS.skills);
-      return { data: installSkills({ target: oneOf(o, 'target', ['claude', 'codex', 'all'] as const) ?? 'all', worker: oneOf(o, 'worker', WORKERS), dryRun: !!o['dry-run'], includeMissing: !!o['include-missing'], force: !!o.force }) };
+      return { data: installSkills({ target: oneOf(o, 'target', ['claude', 'codex', 'all'] as const) ?? 'all', worker: oneOf(o, 'worker', SKILLS), dryRun: !!o['dry-run'], includeMissing: !!o['include-missing'], force: !!o.force }) };
     } },
   version: { usage: 'version', summary: 'CLI and protocol version.', run: () => ({ data: { version: VERSION, protocol: PROTOCOL_VERSION } }) },
   review: { usage: 'review <ref> --verdict accepted|changes_required --report-file FILE', summary: 'Legacy optional review note.', hidden: true,

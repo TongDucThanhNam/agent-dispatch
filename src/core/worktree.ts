@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { RECORD_DIR } from './paths.ts';
 
 // Read-only working-tree fingerprint used to check that a discovery run left the checkout unchanged
 // and whether files changed between discovery and execution. It never stages, resets or cleans anything.
 const MAX_ENTRIES = 5000, MAX_HASH_BYTES = 32 * 1024 * 1024, MAX_LISTED = 50;
-const IGNORED = ['.zcode-dispatch/', '.tmp/'];
+const IGNORED = [`${RECORD_DIR}/`, '.tmp/'];
 
 function git(cwd, args) {
   const result = spawnSync('git', ['--no-optional-locks', '-c', 'core.quotepath=off', ...args], { cwd, encoding: 'buffer', windowsHide: true, maxBuffer: 64 * 1024 * 1024, timeout: 60_000 });

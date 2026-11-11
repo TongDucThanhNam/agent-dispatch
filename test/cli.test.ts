@@ -15,7 +15,7 @@ afterAll(() => rmTree(base));
 const cli = (...args: string[]) => run(args, { env: { ZCODE_DASHBOARD_ROOT: hubRoot }, cwd: project });
 
 function fixtureRun(runId: string, { stage = 'discovery', status = 'ready_for_review', report = '# Report\n\nAll questions answered.\n', active = false, startedAt = Date.now() - 60_000 } = {}) {
-  const runDir = path.join(project, '.zcode-dispatch', runId);
+  const runDir = path.join(project, '.agent-dispatch', runId);
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(path.join(runDir, 'config.json'), JSON.stringify({ runId, project, runDir, workerKind: 'zcode', stage, notify: false,
     expectedProvider: 'fixture-provider', expectedModel: 'fixture-model', zcodeEffort: 'max' }));
@@ -105,7 +105,7 @@ describe('run commands', () => {
 
   test('refs resolve by suffix, full ID, last and path; ambiguity and misses are distinct errors', () => {
     expect(cli('status', 'run-1000-aaaa1111').envelope.data.ref).toBe('aaaa1111');
-    expect(cli('status', path.join(project, '.zcode-dispatch', 'run-1000-aaaa1111')).envelope.data.ref).toBe('aaaa1111');
+    expect(cli('status', path.join(project, '.agent-dispatch', 'run-1000-aaaa1111')).envelope.data.ref).toBe('aaaa1111');
     expect(cli('status', 'last').envelope.data.ref).toBe('cccc3333');
     const ambiguous = cli('status', 'dddd4444');
     expect(ambiguous.status).toBe(2);
@@ -146,6 +146,6 @@ describe('run commands', () => {
     expect(cli('launch', '--worker', 'zcode', '--brief', brief).envelope.error).toMatchObject({ code: 'USAGE', message: expect.stringContaining('--stage discovery') });
     expect(cli('launch', '--worker', 'zcode', '--stage', 'discovery').envelope.error).toMatchObject({ code: 'USAGE', hint: expect.stringContaining('template discovery') });
     expect(cli('check', '--worker', 'zcode', '--stage', 'execution', '--from', 'bbbb2222', '--brief', brief).envelope.error.code).toBe('DISCOVERY_INVALID');
-    expect(fs.readdirSync(path.join(project, '.zcode-dispatch'))).toHaveLength(5);
+    expect(fs.readdirSync(path.join(project, '.agent-dispatch'))).toHaveLength(5);
   });
 });

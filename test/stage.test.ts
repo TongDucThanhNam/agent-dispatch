@@ -34,7 +34,7 @@ test('worktree fingerprints detect edits, new files and commits but ignore run r
   const project = repo(t, 'fp'), before = worktreeFingerprint(project);
   assert.equal(before.git, true); assert.ok(before.entries['dirty.js']);
   fs.mkdirSync(path.join(project, '.tmp'), { recursive: true }); fs.writeFileSync(path.join(project, '.tmp', 'probe.mjs'), 'probe');
-  fs.mkdirSync(path.join(project, '.zcode-dispatch', 'run-x'), { recursive: true }); fs.writeFileSync(path.join(project, '.zcode-dispatch', 'run-x', 'status.json'), '{}');
+  fs.mkdirSync(path.join(project, '.agent-dispatch', 'run-x'), { recursive: true }); fs.writeFileSync(path.join(project, '.agent-dispatch', 'run-x', 'status.json'), '{}');
   assert.deepEqual(compareFingerprints(before, worktreeFingerprint(project)).changed, []);
   assert.equal(compareFingerprints(before, worktreeFingerprint(project)).clean, true);
   fs.writeFileSync(path.join(project, 'app.js'), 'export const unit = "second";\n'); fs.writeFileSync(path.join(project, 'new.js'), 'x');
@@ -52,8 +52,9 @@ test('worktree fingerprints detect edits, new files and commits but ignore run r
 test('stage configuration is validated and a discovery link must stay inside the project', t => {
   const project = repo(t, 'cfg');
   assert.equal(configFor(project, 'plain').stage, 'execution');
+  assert.equal(configFor(project, 'plain').runDir, path.join(project, '.agent-dispatch', 'plain'));
   assert.throws(() => configFor(project, 'bad', { stage: 'review' }), /discovery or execution/);
-  assert.throws(() => configFor(project, 'bad2', { stage: 'discovery', discoveryRunDir: path.join(project, '.zcode-dispatch', 'd') }), /execution stage/);
+  assert.throws(() => configFor(project, 'bad2', { stage: 'discovery', discoveryRunDir: path.join(project, '.agent-dispatch', 'd') }), /execution stage/);
   assert.throws(() => configFor(project, 'bad3', { discoveryRunDir: os.tmpdir() }), /same project/);
 });
 
@@ -112,5 +113,5 @@ test('execution cannot link a non-discovery, unfinished or foreign run', async t
   fs.writeFileSync(path.join(running.runDir, 'config.json'), JSON.stringify(running));
   fs.writeFileSync(path.join(running.runDir, 'status.json'), JSON.stringify({ runId: running.runId, workerExited: false }));
   assert.throws(() => linkDiscovery(configFor(project, 'x2', { discoveryRunDir: running.runDir })), /not exited/);
-  assert.throws(() => linkDiscovery(configFor(project, 'x3', { discoveryRunDir: path.join(project, '.zcode-dispatch', 'missing') })), /no readable run record/);
+  assert.throws(() => linkDiscovery(configFor(project, 'x3', { discoveryRunDir: path.join(project, '.agent-dispatch', 'missing') })), /no readable run record/);
 });

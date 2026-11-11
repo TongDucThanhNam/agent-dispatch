@@ -8,15 +8,18 @@ import { clean } from '../monitor/monitor-core.ts';
 import { nativePaths, nativeSelection } from '../workers/zcode/native.ts';
 import { CLAUDE_EFFORTS } from '../workers/claude/adapter.ts';
 import { mcodePaths, isMcodeSession } from '../workers/mcode/desktop.ts';
+import { geminiPaths, geminiModelId, geminiModelLabel, isGeminiSession, GEMINI_DEFAULT_MODEL, GEMINI_DEFAULT_EFFORT } from '../workers/gemini/desktop.ts';
 
-export type WorkerKind = 'zcode' | 'agy' | 'codex' | 'claude' | 'mcode';
-export const WORKERS: WorkerKind[] = ['zcode', 'agy', 'codex', 'claude', 'mcode'];
-export const LABELS: Record<WorkerKind, string> = { zcode: 'ZCode', agy: 'AGY', codex: 'Codex', claude: 'Claude Code', mcode: 'MiniMax Code Desktop' };
+import { validateGeminiEmails } from '../workers/gemini/prompt.ts';
+
+export type WorkerKind = 'zcode' | 'agy' | 'codex' | 'claude' | 'mcode' | 'grok' | 'gemini';
+export const WORKERS: WorkerKind[] = ['zcode', 'agy', 'codex', 'claude', 'mcode', 'grok', 'gemini'];
+export const LABELS: Record<WorkerKind, string> = { zcode: 'ZCode', agy: 'AGY', codex: 'Codex', claude: 'Claude Code', mcode: 'MiniMax Code Desktop', grok: 'Grok Build', gemini: 'Gemini Desktop' };
 export const workerLabel = (config: { workerKind?: string }) => LABELS[config.workerKind as WorkerKind] ?? 'ZCode';
 
 export const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 export const validSession = (config: { workerKind?: string }, id: unknown) =>
-  config.workerKind === 'mcode' ? isMcodeSession(id) : config.workerKind === 'agy' || config.workerKind === 'codex' || config.workerKind === 'claude' ? UUID.test(String(id ?? '')) : /^sess_[A-Za-z0-9_-]+$/.test(String(id ?? ''));
+  config.workerKind === 'gemini' ? isGeminiSession(id) : config.workerKind === 'mcode' ? isMcodeSession(id) : ['agy', 'codex', 'claude', 'grok'].includes(config.workerKind ?? '') ? UUID.test(String(id ?? '')) : /^sess_[A-Za-z0-9_-]+$/.test(String(id ?? ''));
 
 /** Short, stable handle for a run: the random suffix of generated run IDs, otherwise the run ID itself. */
 export const shortRef = (runId: string) => /^run-\d+-([0-9a-f]{8})$/.exec(runId)?.[1] ?? runId;
@@ -36,10 +39,13 @@ export const defaultPaths = () => ({
   agyExe: home('AppData/Local/agy/bin/agy.exe'),
   claudeExe: (typeof Bun !== 'undefined' ? Bun.which('claude') : null) ?? home('.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude'),
   claudeHome: process.env.CLAUDE_CONFIG_DIR ?? home('.claude'),
+  grokExe: (typeof Bun !== 'undefined' ? Bun.which('grok') : null) ?? home('.grok', 'bin', process.platform === 'win32' ? 'grok.exe' : 'grok'),
+  grokHome: process.env.GROK_HOME ?? home('.grok'),
   codexHome: process.env.CODEX_HOME ?? home('.codex'),
   cliConfig: home('.zcode/cli/config.json'),
   dbPath: home('.zcode/cli/db/db.sqlite'),
   ...mcodePaths(),
+  ...geminiPaths(),
 });
 
 const invalid = (message: string, hint?: string) => new CliError('INVALID_CONFIG', message, hint);
@@ -51,7 +57,7 @@ const invalid = (message: string, hint?: string) => new CliError('INVALID_CONFIG
 export function validateConfig(raw: any): any {
   if (!raw || typeof raw !== 'object') throw invalid('A run configuration object is required.');
   const workerKind = raw.workerKind ?? 'zcode';
-  if (!WORKERS.includes(workerKind)) throw invalid('Invalid worker kind.', 'Use --worker zcode, agy, codex, claude or mcode.');
+  if (!WORKERS.includes(workerKind)) throw invalid('Invalid worker kind.', `Use --worker ${WORKERS.join(', ')}.`);
   let project: string;
   try { project = fs.realpathSync(path.resolve(raw.project ?? '.')); }
   catch { throw invalid('The project directory does not exist.', 'Pass an existing directory with --project.'); }
@@ -62,13 +68,32 @@ export function validateConfig(raw: any): any {
   if (raw.notify !== false && !UUID.test(raw.threadId ?? ''))
     throw invalid('Use the originating Codex task UUID for threadId.', 'Pass --notify none when no Codex task should be called back (for example under Claude Code), or --thread <Codex task UUID>.');
   if (raw.resumeSessionId && !validSession({ workerKind }, raw.resumeSessionId))
-    throw invalid(`Invalid ${{ agy: 'AGY conversation', codex: 'Codex thread', claude: 'Claude session', mcode: 'MiniMax desktop session' }[workerKind] ?? 'ZCode session'} ID.`);
+    throw invalid(`Invalid ${{ agy: 'AGY conversation', codex: 'Codex thread', claude: 'Claude session', mcode: 'MiniMax desktop session', grok: 'Grok session', gemini: 'Gemini conversation' }[workerKind] ?? 'ZCode session'} ID.`);
   const bounded = (name: string, fallback: number, min: number, max: number) => {
     const value = raw[name] ?? fallback;
     if (!Number.isInteger(value) || value < min || value > max) throw invalid(`Invalid ${name}.`);
     return value;
   };
+  if (workerKind !== 'gemini' && ['geminiContextFile', 'geminiTimeoutSeconds', 'geminiAllowEmails'].some(key => raw[key] != null))
+    throw invalid('--context, --timeout and --allow-email are Gemini-only options.');
   let selection: any = {};
+  if (workerKind === 'gemini') {
+    if (raw.geminiBackend != null && !['bridge', 'uia'].includes(raw.geminiBackend)) throw invalid('Unsupported Gemini backend.');
+    if (raw.provider != null || raw.mode && raw.mode !== 'yolo') throw invalid('Gemini sends chat prompts only; provider and coding modes are not supported.');
+    if ((raw.geminiModel ?? raw.model) != null && (typeof (raw.geminiModel ?? raw.model) !== 'string' || !(raw.geminiModel ?? raw.model).trim())) throw invalid('Invalid Gemini model label.');
+    const model = raw.geminiModel ?? raw.model ?? (raw.geminiBackend === 'uia' ? null : GEMINI_DEFAULT_MODEL);
+    const effort = raw.geminiEffort ?? raw.effort ?? (raw.geminiBackend === 'uia' ? null : GEMINI_DEFAULT_EFFORT);
+    if (effort != null && !['low', 'medium', 'high'].includes(effort)) throw invalid('Invalid Gemini thinking level. Use low, medium or high.');
+    if (raw.geminiBackend === 'uia' && effort != null) throw invalid('Automatic Gemini thinking selection requires the bridge backend.');
+    if (raw.geminiContextFile != null && (typeof raw.geminiContextFile !== 'string' || !raw.geminiContextFile.trim())) throw invalid('Invalid Gemini context file.');
+    let emails: string[];
+    try { emails = validateGeminiEmails(raw.geminiAllowEmails); } catch { throw invalid('Email exceptions must be an explicit list of complete addresses.'); }
+    const label = model ? geminiModelLabel(model) : null;
+    selection = { ...geminiPaths(raw), geminiModel: label, geminiEffort: effort,
+      geminiContextFile: raw.geminiContextFile ? path.resolve(raw.geminiContextFile) : null, geminiAllowEmails: emails,
+      geminiTimeoutSeconds: bounded('geminiTimeoutSeconds', 300, 10, 3600),
+      expectedProvider: 'gemini-desktop', expectedModel: label ? geminiModelId(label) : 'pending-selection' };
+  }
   if (workerKind === 'zcode') {
     try { selection = { ...nativePaths(raw), ...nativeSelection(raw) }; }
     catch (error) { throw invalid(error.message, 'List qualified IDs with: agent-dispatch models --worker zcode'); }
@@ -88,15 +113,18 @@ export function validateConfig(raw: any): any {
     threadId: raw.threadId ?? null, notify: raw.notify !== false, callbackModel: raw.callbackModel ?? null,
     expectedModel: workerKind === 'agy' ? raw.agyModel ?? raw.model ?? raw.expectedModel ?? 'pending-selection'
       : workerKind === 'codex' ? raw.codexModel ?? raw.model ?? raw.expectedModel ?? 'pending-selection'
+      : workerKind === 'grok' ? raw.grokResolvedModel ?? raw.grokModel ?? raw.model ?? raw.expectedModel ?? 'pending-selection'
       : workerKind === 'claude' ? raw.claudeResolvedModel ?? raw.claudeModel ?? raw.model ?? raw.expectedModel ?? 'pending-selection' : raw.expectedModel ?? 'GLM-5.3-Flash',
     expectedProvider: workerKind === 'agy' ? 'agy' : workerKind === 'codex' ? raw.codexProvider ?? raw.provider ?? raw.expectedProvider ?? 'pending-selection'
-      : workerKind === 'claude' ? 'claude' : raw.expectedProvider ?? 'account:zai-individual-coding-plan',
+      : workerKind === 'claude' ? 'claude' : workerKind === 'grok' ? 'grok' : raw.expectedProvider ?? 'account:zai-individual-coding-plan',
     ...selection,
     adapter: path.resolve(raw.adapter ?? defaults.adapter),
     codexExe: path.resolve(raw.codexExe ?? defaults.codexExe),
     cliConfig: path.resolve(raw.cliConfig ?? defaults.cliConfig),
     dbPath: workerKind === 'agy' ? path.join(runDir, 'agy-events.sqlite') : workerKind === 'codex' ? path.join(runDir, 'codex-events.sqlite')
       : workerKind === 'claude' ? path.join(runDir, 'claude-events.sqlite')
+      : workerKind === 'grok' ? path.join(runDir, 'grok-events.sqlite')
+      : workerKind === 'gemini' ? path.join(runDir, 'gemini-events.sqlite')
       : workerKind === 'mcode' ? path.join(runDir, 'mcode-events.sqlite')
       : path.resolve(raw.dbPath ?? defaults.dbPath),
     ...(raw.nodeExe ? { nodeExe: path.resolve(raw.nodeExe) } : {}),
@@ -110,6 +138,9 @@ export function validateConfig(raw: any): any {
     ...(workerKind === 'claude' ? { claudeExe: path.resolve(raw.claudeExe ?? defaults.claudeExe), claudeHome: path.resolve(raw.claudeHome ?? defaults.claudeHome),
       claudeModel: raw.claudeModel ?? raw.model ?? null, claudeResolvedModel: raw.claudeResolvedModel ?? null,
       claudeEffort: raw.claudeEffort ?? raw.effort ?? null } : {}),
+    ...(workerKind === 'grok' ? { grokExe: path.resolve(raw.grokExe ?? defaults.grokExe), grokHome: path.resolve(raw.grokHome ?? defaults.grokHome),
+      grokModel: raw.grokModel ?? raw.model ?? null, grokResolvedModel: raw.grokResolvedModel ?? null,
+      grokEffort: raw.grokEffort ?? raw.effort ?? null } : {}),
     resumeSessionId: raw.resumeSessionId ?? null, mode: raw.mode ?? 'yolo',
     stage: raw.stage ?? 'execution', discoveryRunDir: raw.discoveryRunDir ? path.resolve(raw.discoveryRunDir) : null, discoveryDrift: driftOf(raw.discoveryDrift),
     pollMs: bounded('pollMs', 5000, 100, 60_000), quietMs: bounded('quietMs', 180_000, 100, 86_400_000),
@@ -154,6 +185,14 @@ export function validateConfig(raw: any): any {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(config.mcodeAgent) || !/^dispatch-[A-Za-z0-9-]{1,100}$/.test(config.mcodeTurnId)) throw invalid('Invalid MiniMax agent or turn ID.');
     if (config.mcodeVariant != null && !/^[A-Za-z0-9._-]{0,100}$/.test(config.mcodeVariant)) throw invalid('Invalid MiniMax variant.');
   }
+  if (workerKind === 'grok') {
+    if (!['yolo', 'plan'].includes(config.mode)) throw invalid('Grok supports yolo or plan in this launcher.');
+    for (const field of ['grokModel', 'grokResolvedModel'])
+      if (config[field] != null && (typeof config[field] !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,100}$/.test(config[field]) || config[field] === 'unknown')) throw invalid('Invalid Grok model.');
+    if (config.grokEffort != null && (typeof config.grokEffort !== 'string' || !/^[a-z][a-z0-9_-]{0,39}$/.test(config.grokEffort))) throw invalid('Invalid Grok effort.', 'Use a reasoning level supported by the selected Grok model.');
+    if (raw.provider != null && raw.provider !== 'grok') throw invalid('Grok provider routing comes from its own settings and environment.', 'Configure grok normally; do not pass --provider.');
+    if (process.platform === 'win32' && /\.(?:cmd|bat|ps1)$/i.test(config.grokExe)) throw invalid('Use the native grok.exe, not a shell wrapper.');
+  }
   for (const field of ['callbackModel', 'expectedModel', 'expectedProvider']) {
     if (workerKind === 'claude' && field === 'expectedModel') continue;
     if (config[field] !== null && !/^[A-Za-z0-9][A-Za-z0-9:._/-]{0,100}$/.test(config[field])) throw invalid(`Invalid ${field}.`);
@@ -161,4 +200,4 @@ export function validateConfig(raw: any): any {
   return config;
 }
 
-export const configuredEffort = (config: any) => config?.zcodeEffort ?? config?.agyEffort ?? config?.codexEffort ?? config?.claudeEffort ?? config?.mcodeEffort ?? null;
+export const configuredEffort = (config: any) => config?.zcodeEffort ?? config?.agyEffort ?? config?.codexEffort ?? config?.claudeEffort ?? config?.mcodeEffort ?? config?.grokEffort ?? config?.geminiEffort ?? null;

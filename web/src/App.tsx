@@ -207,7 +207,7 @@ function EmptyState({ hasRecent, onOpenSidebar }: { hasRecent: boolean; onOpenSi
         <p className="mt-1.5 text-[13px] text-muted-foreground">
           {hasRecent
             ? 'Nothing is running right now. Choose a recent run from the sidebar to review its trajectory, report and session log.'
-            : 'Runs you delegate to ZCode, Codex or AGY show up here live, with every model request and tool call.'}
+            : 'Delegated worker runs, including Grok Build, show up here live with model requests and tool calls.'}
         </p>
         {!hasRecent && (
           <div className="mx-auto mt-4 inline-flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 font-mono text-[12px]">

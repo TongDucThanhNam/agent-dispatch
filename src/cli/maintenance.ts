@@ -10,13 +10,27 @@ import { nativePaths, nativeSelection, modelCatalog } from '../workers/zcode/nat
 import { readAgySelection } from '../workers/agy/adapter.ts';
 import { readCodexSelection, EFFORTS as CODEX_EFFORTS } from '../workers/codex/adapter.ts';
 import { readClaudeSelection, readClaudeRuntime, CLAUDE_EFFORTS, CLAUDE_ALIASES } from '../workers/claude/adapter.ts';
+import { readGrokRuntime, readGrokModels, GROK_EFFORTS } from '../workers/grok/adapter.ts';
 import { CliError, labelled, labelledAsync } from '../protocol/errors.ts';
 import { SKILL_NAMES, SKILL_ROOTS, skillState } from '../skills/install.ts';
 import { probeMcode } from '../workers/mcode/desktop.ts';
+import { probeGemini } from '../workers/gemini/desktop.ts';
 
 export const ZCODE_DEFAULT = (() => { const s = nativeSelection({}); return `${s.expectedProvider}/${s.expectedModel}`; })();
 
 export async function models(worker: WorkerKind) {
+  if (worker === 'gemini') {
+    const runtime = await labelledAsync('WORKER_UNAVAILABLE', () => probeGemini(defaultPaths()));
+    return { worker, selected: runtime.model, defaultModel: '4 Argon', defaultEffort: 'high', backend: runtime.backend,
+      note: 'The visible app label is not an API model ID. Each bridge run selects and verifies its own model and thinking level before sending.' };
+  }
+  if (worker === 'grok') {
+    const paths = defaultPaths();
+    if (!fs.existsSync(paths.grokExe)) throw new CliError('WORKER_UNAVAILABLE', 'Grok executable is missing.', 'Install the native Grok Build CLI.');
+    const selection = await labelledAsync('MODEL_UNAVAILABLE', () => readGrokModels(paths));
+    return { worker, selected: `grok/${selection.model}`, models: selection.models, efforts: GROK_EFFORTS,
+      note: 'Native grok models catalog; effort support is model-dependent. Launch resolves and pins the actual model from system/init. X search and web tools remain available subject to native settings.' };
+  }
   if (worker === 'mcode') {
     const runtime = await labelledAsync('WORKER_UNAVAILABLE', () => probeMcode(defaultPaths()), 'Run agent-dispatch mcode setup.');
     const available = runtime.models.filter(m => m.provider_kind === 'minimax-managed' && m.enabled !== false);
@@ -73,12 +87,16 @@ export async function doctor(cwd = process.cwd()) {
     selected: codexSelection.model ? `${codexSelection.provider}/${codexSelection.model}` : null, effort: codexSelection.effort };
   checks.claude = fs.existsSync(paths.claudeExe) ? { ...await readClaudeRuntime(paths.claudeExe), exe: paths.claudeExe }
     : { ok: false, exe: paths.claudeExe, error: 'Claude executable is missing.' };
+  checks.grok = fs.existsSync(paths.grokExe) ? { ...await readGrokRuntime(paths.grokExe), exe: paths.grokExe }
+    : { ok: false, exe: paths.grokExe, error: 'Grok executable is missing.' };
   try {
     const runtime = await probeMcode(paths);
     checks.mcode = { ok: runtime.source === 'token_plan', backend: 'desktop', exe: paths.mcodeExe, version: runtime.bridge.version,
       pid: runtime.bridge.pid, modelSource: runtime.source, manifest: paths.mcodeManifest };
   } catch (error) { checks.mcode = { ok: false, backend: 'desktop', exe: paths.mcodeExe, error: error.message, hint: 'agent-dispatch mcode setup' }; }
   checks.idle = { ok: fs.existsSync(paths.adapter), adapter: paths.adapter };
+  checks.gemini = { ok: fs.existsSync(paths.geminiExe), exe: paths.geminiExe,
+    backend: 'desktop-bridge', hint: 'agent-dispatch gemini status (verifies the installed bridge and app process)' };
   checks.hub = await hubState();
   const skills: Record<string, string> = {};
   for (const [target, root] of Object.entries(SKILL_ROOTS())) for (const [worker, name] of Object.entries(SKILL_NAMES)) skills[`${target}:${worker}`] = skillState(path.join(root, name));

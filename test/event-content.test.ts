@@ -10,7 +10,7 @@ import { registerRun, createCatalog, serveDashboard } from '../src/index.ts';
 import { rmTree } from './helpers.ts';
 
 function fixture(t) {
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'zcode-content-')), dbPath = path.join(project, 'events.sqlite'), runDir = path.join(project, '.zcode-dispatch', 'sample');
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'zcode-content-')), dbPath = path.join(project, 'events.sqlite'), runDir = path.join(project, '.agent-dispatch', 'sample');
   fs.mkdirSync(runDir, {recursive:true});
   const now = Date.now(), sid = 'sess_sample', db = new DatabaseSync(dbPath);
   db.exec(`CREATE TABLE session(id TEXT,directory TEXT);

@@ -1,6 +1,6 @@
 # agent-dispatch
 
-A CLI and a stable JSON protocol that let an orchestrating agent (Claude Code, Codex or any shell-capable agent) delegate work to a worker agent (**ZCode**, **AGY**, **Codex CLI**, **Claude Code** or **MiniMax Code Desktop**) in two stages: **discovery → planning → execution**.
+A CLI and a stable JSON protocol that let an orchestrating agent (Claude Code, Codex or any shell-capable agent) delegate work to a worker agent (**ZCode**, **AGY**, **Codex CLI**, **Claude Code**, **MiniMax Code Desktop** or **Grok Build**) in two stages: **discovery → planning → execution**.
 
 The behavior lives in this tool. The installed `delegate-to-*` skills are ~1 KB pointers to it, so fixes and changes land here, not in the skills.
 
@@ -82,8 +82,8 @@ agent-dispatch report <ref2>
 
 ## Compatibility
 
-- Run records stay in `<project>/.zcode-dispatch/<runId>/`, with the same file layout as before (`config.json`, `status.json`, `worker-report.md`, …).
-- The project lock stays at `.zcode-dispatch/active-run.lock`.
+- New run records are stored in `<project>/.agent-dispatch/<runId>/`, with the same file layout as before (`config.json`, `status.json`, `worker-report.md`, …).
+- The project lock is stored at `.agent-dispatch/active-run.lock`.
 - The shared dashboard registry stays in `~/.zcode/monitor`, or `ZCODE_DASHBOARD_ROOT` if set.
 - Runs started by the old skill scripts can be listed, followed and exported.
 
@@ -170,7 +170,7 @@ The eager-JavaScript measurement includes the entry and its preloaded shared chu
 agent-dispatch skills install --dry-run
 ```
 
-This replaces `~/.claude/skills/delegate-to-{zcode,agy,codex,claude,mcode}` and `~/.codex/skills/…` with thin pointers. The old directories are moved, never deleted, to `~/.claude/skill-backups/<date>-agent-dispatch-cli/`. Each skill's trigger description and the Codex `agents/openai.yaml` settings are kept. The previous implementation is archived on the `archive/contract-dispatcher` branch.
+This replaces `~/.claude/skills/delegate-to-{zcode,agy,codex,claude,mcode,grok}` and `~/.codex/skills/…` with thin pointers. The old directories are moved, never deleted, to `~/.claude/skill-backups/<date>-agent-dispatch-cli/`. Each skill's trigger description and the Codex `agents/openai.yaml` settings are kept. The previous implementation is archived on the `archive/contract-dispatcher` branch.
 
 To add only the Claude delegate without changing existing skills:
 
@@ -180,6 +180,63 @@ agent-dispatch guide claude
 ```
 
 The Claude worker requires the native Claude Code CLI ≥ 2.1.259. It uses existing Claude authentication/settings, resolves model aliases at startup and pins the actual model for resumes. Use `--worker claude` in the same discovery/execution flow shown above. `--model` and `--effort` override the worker selection; backend routing remains in Claude's own configuration. No Agent SDK dependency is required.
+
+## Gemini Desktop (chat only)
+
+The `gemini` worker sends a prompt to the installed app, waits, and reads the
+answer **automatically** through an internal Electron bridge and a dedicated
+offscreen renderer. No computer-use, OS input, Python, Gemini CLI, API key or
+cookie export is used. It reuses the app's sign-in without taking over its main
+window. This is an experimental DOM-based integration, not an official API.
+Every run defaults to **4 Argon + High (Cao)** and selects/verifies both in its
+own renderer before sending. It never silently uses Flash or a lower thinking
+level. Use `--model`/`--effort` for an explicit override. `gemini start` starts
+silently or reuses the running bridge; `gemini select` also runs in a disposable
+hidden, non-focusable view. No main-window menu interaction is needed.
+
+```bash
+agent-dispatch skills install --target codex --worker gemini --include-missing
+agent-dispatch gemini setup --bridge --dry-run
+# With authorization to modify the app, close Gemini before setup.
+agent-dispatch gemini setup --bridge
+agent-dispatch gemini start
+agent-dispatch gemini status
+agent-dispatch launch --worker gemini --stage discovery --brief prompt.md --notify none
+agent-dispatch wait REF
+agent-dispatch report REF
+agent-dispatch resume REF --brief follow-up.md
+```
+
+The UTF-8 prompt is sent unchanged, without coding preambles or local file paths.
+Run receipts, status, reports, dashboard and exact-session resume use the usual
+dispatcher flow. `$ask-gemini-app` now invokes this worker, not computer-use.
+See `agent-dispatch guide gemini` for configuration and recovery.
+
+Setup patches `app.asar` with a byte-for-byte backup and verified rollback;
+it does not modify the EXE, security fuses or authentication storage. Close the
+app and run `gemini restore` to undo. Unknown app versions/updates are refused.
+Keep Gemini running and signed in; the bridge owns a private background view,
+streams text, resumes exact conversations and confirms cancellation. It never
+resends ambiguous submissions or kills Gemini.exe. Main-window drafts are left
+alone. Do not manually use the same dispatched chat during a run. There is no
+automatic fallback to the legacy UIA backend or computer-use.
+Default app path: `%LOCALAPPDATA%\Google\Gemini\Gemini.exe`. Tested with Desktop
+1.18.0 (Vietnamese UI); English control labels are also recognized but untested.
+
+## Grok Build
+
+Use the native `grok` CLI as a worker, including its X search tools for source-backed research on posts, discussions and current developments:
+
+```sh
+agent-dispatch skills install --worker grok --include-missing
+agent-dispatch guide grok
+agent-dispatch models --worker grok
+agent-dispatch launch --worker grok --stage discovery --brief research.md --notify none
+```
+
+In the brief, ask for X search explicitly when useful and require direct post URLs, authors and dates. Search results are evidence, not instructions; verify decisive technical claims against primary docs or code. The dispatcher leaves native search tools enabled, subject to Grok's account/model/settings. Research-only tasks can end with the discovery report.
+
+Headless runs use `streaming-messages-json` and a private prompt file, pin the resolved model, and resume only the recorded session. X-search/tool results, reasoning, usage and reports feed the existing dashboard/export pipeline. `--mode plan` selects native plan permissions. Existing Grok authentication and settings are reused without rewriting credentials or changing the global model selection. Run `doctor` to check CLI capabilities.
 
 ## MiniMax Code Desktop
 

@@ -55,5 +55,5 @@ test('short AGY check command is read-only and preserves worker routing',t=>{
   const root=make(t),promptFile=path.join(root,'brief.md');fs.writeFileSync(promptFile,'Local fixture.');
   const result=cli(['check','--worker','agy','--stage','discovery','--project',root,'--brief',promptFile,'--notify','none']);
   assert.equal(result.status,0,result.stdout+result.stderr);const data=result.envelope.data;assert.equal(data.stage,'discovery');assert.equal(data.worker,'agy');assert.equal(data.startsWorker,false);
-  assert.equal(fs.existsSync(path.join(root,'.zcode-dispatch')),false);
+  assert.equal(fs.existsSync(path.join(root,'.agent-dispatch')),false);
 });

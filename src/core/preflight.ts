@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { RECORD_DIR, LOCK_FILE } from './paths.ts';
 
 export const MAX_ASSIGNMENT_CHARACTERS = 12_000;
 
@@ -43,7 +44,7 @@ export function inspectProject(directory, { taskIndex = path.join(os.homedir(), 
   if (!fs.statSync(project).isDirectory()) throw new Error('Project must be a directory.');
   const locks: any[] = [];
   for (let parent = project; ; parent = path.dirname(parent)) {
-    const lockPath = path.join(parent, '.zcode-dispatch/active-run.lock');
+    const lockPath = path.join(parent, RECORD_DIR, LOCK_FILE);
     try {
       const record = JSON.parse(fs.readFileSync(lockPath, 'utf8').replace(/^\uFEFF/, ''));
       locks.push({ path: lockPath, runId: record.runId ?? null, runDir: record.runDir ?? null,

@@ -55,7 +55,7 @@ test('missing index stays unavailable and is not created', t => {
   assert.equal(snapshot.desktop.tasks, null);
   assert.equal(snapshot.startsWorker, false);
   assert.equal(fs.existsSync(taskIndex), false);
-  assert.equal(fs.existsSync(path.join(root, '.zcode-dispatch')), false);
+  assert.equal(fs.existsSync(path.join(root, '.agent-dispatch')), false);
 });
 
 test('ownership snapshot includes parent/child and unknown states, excludes siblings and private content', t => {
@@ -94,11 +94,11 @@ test('incompatible schema is unknown, never a false empty queue', t => {
 
 test('dead-PID and malformed ancestor locks remain untouched and require reconciliation', t => {
   const root = temporary(t), project = path.join(root, 'desktop');
-  fs.mkdirSync(path.join(project, '.zcode-dispatch'), { recursive: true });
-  fs.mkdirSync(path.join(root, '.zcode-dispatch'));
-  const lock = path.join(project, '.zcode-dispatch/active-run.lock');
-  const parentLock = path.join(root, '.zcode-dispatch/active-run.lock');
-  const content = JSON.stringify({ runnerPid: 0, workerPid: -1, runId: 'old', runDir: path.join(project, '.zcode-dispatch/old') });
+  fs.mkdirSync(path.join(project, '.agent-dispatch'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.agent-dispatch'));
+  const lock = path.join(project, '.agent-dispatch/active-run.lock');
+  const parentLock = path.join(root, '.agent-dispatch/active-run.lock');
+  const content = JSON.stringify({ runnerPid: 0, workerPid: -1, runId: 'old', runDir: path.join(project, '.agent-dispatch/old') });
   fs.writeFileSync(lock, content);
   fs.writeFileSync(parentLock, '{broken');
   const snapshot = inspectProject(project, { taskIndex: path.join(root, 'missing.sqlite') });

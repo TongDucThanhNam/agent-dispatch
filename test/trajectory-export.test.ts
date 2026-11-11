@@ -14,7 +14,7 @@ import { rmTree } from './helpers.ts';
 
 // ZCode-shaped fixture: two turns, TTFT/usage columns, an injected reminder, a compaction and a sub-session.
 function fixture(t, { finished = false } = {}) {
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'zcode-trajectory-export-')), runDir = path.join(project, '.zcode-dispatch', 'run-x');
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'zcode-trajectory-export-')), runDir = path.join(project, '.agent-dispatch', 'run-x');
   fs.mkdirSync(runDir, { recursive: true });
   const dbPath = path.join(project, 'db.sqlite'), db = new DatabaseSync(dbPath), now = Date.now() - 60_000, sid = 'sess_main';
   db.exec(`CREATE TABLE session(id TEXT,directory TEXT,parent_id TEXT,time_created INTEGER,time_updated INTEGER,title TEXT);

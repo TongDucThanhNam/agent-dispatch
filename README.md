@@ -24,6 +24,27 @@ agent-dispatch doctor
 
 `doctor` checks the runtimes, the worker executables and model selection, the dashboard hub, the installed skills and the current project lock.
 
+### AGY worker on a new machine
+
+See **[AGY worker setup / cài máy mới](docs/agy-worker-setup.md)** for the clone-to-working checklist. The minimal profile is versioned in this repo, not only in the current user's home:
+
+```bash
+bun run setup:agy
+bun run build:web
+agent-dispatch skills install --worker agy --include-missing
+agent-dispatch models --worker agy
+```
+
+Install and sign in to AGY first. Fresh delegated runs automatically select the installed `lean` profile; no PowerShell wrapper is required. Re-running setup is a no-op when identical; replacing a different profile requires `--force` and creates a backup.
+
+### Context configuration on a new machine
+
+**[Context setup index](docs/context-setup.md)** links the saved [Codex](docs/codex-context-setup.md), [Claude Code](docs/claude-context-setup.md), [ZCode](docs/zcode-context-setup.md), [MCode Desktop](docs/mcode-context-setup.md), and AGY configurations. Portable prompt/config fragments live in `assets/context/`; agents other than AGY require manual merging. ZCode's old CLI overlay and MCode's old prompt trim are documented as version-specific historical work, not silently installed on updated apps. Credentials, machine paths, model and permission defaults are intentionally not copied.
+
+Fresh ZCode workers default to the live-verified **files** [context profile](docs/zcode-worker-profiles.md): six built-in tools, no nested delegation/questions/planning tools. Use `--context-profile web|shell|stock` to override; existing resumes keep their saved profile. Matched native smoke tests passed after browser login, with first-request input **9,489 → 4,037 tokens (~57.5% less)** on GLM-5.3-Flash/max. Profiles only change worker argv/environment, not the installed bundle or Desktop settings; native authentication can update its credential store normally.
+
+MCode Desktop 3.1.14 has a separate [minimal worker candidate](docs/mcode-worker-context.md), installed with `bun run setup:mcode-worker` through native Custom Agent APIs. It does not replace `mavis` or patch app files; **default remains unchanged** because the real baseline was Token Plan quota-blocked. Native setup/readback/preflight pass, but there is no live candidate/token-reduction claim yet.
+
 ## For agents: the protocol (v1)
 
 Read `agent-dispatch guide <worker>` once per task (≈5 KB, tailored to the calling agent). It covers the flow, waiting and the rules. Then:

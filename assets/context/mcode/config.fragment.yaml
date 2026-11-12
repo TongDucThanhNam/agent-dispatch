@@ -1,0 +1,38 @@
+# Merge these sections into the active Desktop data directory's config.yaml.
+# Rechecked on Desktop 3.1.14 on 2026-11-12. Not a standalone mcode CLI preset.
+# Preserve provider, credentials, model, context window and permissionMode.
+memory:
+  enabled: false
+agents:
+  default:
+    tools:
+      - read
+      - write
+      - edit
+      - bash
+      - task_query
+      - task_output
+      - task_stop
+      - grep
+      - glob
+      - todowrite
+      - web_fetch
+    skills:
+      - init
+      - mcode-tools-master
+    features:
+      mavis: false
+      delegation: false
+      webSearch: true
+askUser:
+  enabled: false
+skills:
+  external:
+    enabled: false
+beta:
+  autoMemory: false
+  browserUseTooling: false
+  browserBridge: false
+  threadGoal: false
+  skillEvolve: false
+  skillProposal: false

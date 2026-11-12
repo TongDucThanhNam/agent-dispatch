@@ -33,9 +33,21 @@ test('AGY uses the requested permission flag, exact resume ID and pinned model/e
   const args=buildAgyArgs(config,prompt);assert.equal(args[0],'--dangerously-skip-permissions');assert.equal(args[args.indexOf('-p')+1],prompt);
   assert.equal(args[args.indexOf('--add-dir')+1],config.project);
   assert.equal(args[args.indexOf('--conversation')+1],sid);assert.equal(args[args.indexOf('--model')+1],'gemini-fixture');assert.equal(args[args.indexOf('--effort')+1],'high');assert.ok(!args.includes('--continue'));
+  assert.equal(args[args.indexOf('--agent')+1],'worker');
   assert.throws(()=>validateConfig({...config,resumeSessionId:'sess_wrong'}),/conversation/);
   assert.throws(()=>validateConfig({...config,agyPrintTimeout:'0s'}),/timeout/);
   assert.equal(config.dbPath,path.join(config.runDir,'agy-events.sqlite'));
+});
+
+test('fresh AGY workers select lean while explicit choices and legacy resumes keep their agent',t=>{
+  const fresh=fixture(t),args=buildAgyArgs(fresh,'worker brief');
+  assert.equal(fresh.agyAgent,'lean');assert.equal(args[args.indexOf('--agent')+1],'lean');
+  assert.equal(validateConfig({...fresh,agyAgent:'custom-worker'}).agyAgent,'custom-worker');
+  const original=validateConfig({...fresh,agyAgent:null});
+  assert.ok(!buildAgyArgs(original,'brief').includes('--agent'));
+  const {agyAgent,...legacy}=fresh;
+  assert.equal(validateConfig({...legacy,resumeSessionId:sid}).agyAgent,null);
+  assert.equal(validateConfig({...fresh,resumeSessionId:sid}).agyAgent,'lean');
 });
 
 test('stream projection keeps incremental response/tool content and produces compact compatible telemetry',t=>{

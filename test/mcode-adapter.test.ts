@@ -141,6 +141,26 @@ test('desktop adapter delivers stdin-equivalent prompt, pins a visible session a
   }
 });
 
+test('native Token Plan exhaustion is a quota blocker, never a generic failure or automatic retry', async () => {
+  const f = fixture(), calls: any[] = [];
+  const client = {request: async (route, opts: any = {}) => {
+    calls.push({route, opts});
+    if (opts.stream) return stream([frame({type: 2, agent_message: {msg_id: 'quota', turn_id: f.config.mcodeTurnId,
+      role: 'assistant', finish_reason: 'error', msg_content: '42212:The Token Plan usage limit has been reached. private-test-value (2067)'}})]);
+    if (route.endsWith('/abort')) return {success: true};
+    return {session: f.session};
+  }};
+  const bridge = startMcode(f.config, {prompt: 'Isolated quota fixture', startedAt: Date.now()}, {probe: async () => ({...f.runtime, client})});
+  try {
+    const [code] = await once(bridge.child, 'close'); bridge.finalize();
+    const result = finishResult(f.config, {exitCode: code, stopReason: null});
+    expect(code).toBe(1); expect(result.status).toBe('blocked'); expect(result.error.kind).toBe('quota');
+    expect(calls.filter(c => c.opts.stream)).toHaveLength(1);
+    expect(fs.readFileSync(path.join(f.config.runDir, 'result.json'), 'utf8')).not.toContain('private-test-value');
+    expect(calls.some(c => c.route.includes('/model-providers/'))).toBe(false);
+  } finally { bridge.finalize(); f.cleanup(); }
+});
+
 test('stop aborts only the owned desktop turn and never kills the app', async () => {
   const f = fixture(), calls: any[] = []; let active = false, sent!: () => void;
   const delivered = new Promise<void>(resolve => { sent = resolve; });

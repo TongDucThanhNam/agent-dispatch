@@ -1,0 +1,270 @@
+{
+  "validatedAt": "2026-11-12",
+  "scope": "agent-dispatch ZCode worker child process only",
+  "defaultFreshProfile": "files",
+  "profilesAutoEnabled": true,
+  "legacyResumesAutoConverted": false,
+  "offlineNativeToolsets": {
+    "files": [
+      "Bash",
+      "Edit",
+      "Read",
+      "TaskOutput",
+      "TaskStop",
+      "Write"
+    ],
+    "web": [
+      "Bash",
+      "Edit",
+      "Read",
+      "TaskOutput",
+      "TaskStop",
+      "WebFetch",
+      "WebSearch",
+      "Write"
+    ],
+    "shell": [
+      "Bash",
+      "TaskOutput",
+      "TaskStop"
+    ]
+  },
+  "testsPassed": 113,
+  "postRollbackTargetedTestsPassed": 15,
+  "typecheckPassed": true,
+  "nativePreflightFilesPassed": true,
+  "nativePreflightStockPassed": true,
+  "liveSmokeVerified": true,
+  "liveSmokeBlocker": null,
+  "liveSmokeResult": "After official browser login, the unfiltered baseline and files profile both completed the same edit + command verification + report task. Managed default launch and exact-session resume also passed.",
+  "originalBaseline": {
+    "contextProfile": null,
+    "newContextFlagsPresent": false,
+    "contextEnvironmentChanged": false,
+    "exitCode": 1,
+    "error": "project_token_login_failed",
+    "credentialFileMtimeUnchanged": true,
+    "fixtureChanged": false,
+    "reportCreated": false,
+    "phase": "historical pre-login failure"
+  },
+  "authEndpointDiagnostic": {
+    "endpoint": "https://api.z.ai/api/auth/z/login",
+    "httpStatus": 200,
+    "applicationCode": 500,
+    "accessTokenReturned": false,
+    "credentialsUnchanged": true,
+    "tokenExpiryConfirmed": false,
+    "officialBrowserLoginRequiredForFurtherVerification": false,
+    "phase": "historical pre-login diagnostic"
+  },
+  "directLoginPackaging": {
+    "automaticBuiltinConfigDiscoveryFailed": true,
+    "requiredEnvironment": [
+      "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE",
+      "ZCODE_PERSONAL_PROVIDER_CONFIG_FILE"
+    ],
+    "windowsBrowserLauncherUsesCmdStart": true,
+    "windowsLoginWorkaround": "--no-browser; manually paste the complete URL from the active login flow into the browser address bar",
+    "browserLoginCompleted": true
+  },
+  "protectedFileComparisons": [
+    {
+      "name": "installed-bundle",
+      "unchanged": true
+    },
+    {
+      "name": ".zcode/cli/config.json",
+      "unchanged": true
+    },
+    {
+      "name": ".zcode/v2/setting.json",
+      "unchanged": true
+    },
+    {
+      "name": ".zcode/v2/provider_config.json",
+      "unchanged": true
+    },
+    {
+      "name": ".zcode/context-tuning/profile.json",
+      "unchanged": true
+    }
+  ],
+  "desktopGuiRestartTested": false,
+  "globalEnvironmentOverridesWritten": false,
+  "installedBundleOrGlobalConfigWrittenByThisChange": false,
+  "rollback": "--context-profile stock skips filtering and disables legacy overlay only in the child. Advanced JSON explicit zcodeContextProfile:null preserves original argv/environment. Omitting the flag now selects files on fresh workers.",
+  "tokenReductionMeasuredLive": true,
+  "testFiles": 12,
+  "livePair": [
+    {
+      "profile": null,
+      "provider": "account:zai-individual-coding-plan",
+      "model": "GLM-5.3-Flash",
+      "effort": "max",
+      "status": "ready_for_review",
+      "fixtureChanged": true,
+      "commandProof": true,
+      "reportCreated": true,
+      "finalPass": true,
+      "mainRequests": 5,
+      "firstRequestInputTokens": 9489,
+      "firstRequestCacheReadTokens": 0,
+      "executedTools": [
+        {
+          "tool_name": "Bash",
+          "status": "completed",
+          "exit_code": 0,
+          "count": 1
+        },
+        {
+          "tool_name": "Edit",
+          "status": "completed",
+          "exit_code": 0,
+          "count": 1
+        },
+        {
+          "tool_name": "Read",
+          "status": "completed",
+          "exit_code": 0,
+          "count": 1
+        },
+        {
+          "tool_name": "Write",
+          "status": "completed",
+          "exit_code": 0,
+          "count": 1
+        }
+      ],
+      "sessionToolEnablement": [
+        "Agent",
+        "AskUserQuestion",
+        "Bash",
+        "Edit",
+        "EnterPlanMode",
+        "ExitPlanMode",
+        "Read",
+        "SendMessage",
+        "TaskOutput",
+        "TaskStop",
+        "TodoRead",
+        "TodoWrite",
+        "ToolSearch",
+        "WebFetch",
+        "WebSearch",
+        "Write",
+        "DeferredToolCall",
+        "ReadSessionContext"
+      ]
+    },
+    {
+      "profile": "files",
+      "provider": "account:zai-individual-coding-plan",
+      "model": "GLM-5.3-Flash",
+      "effort": "max",
+      "status": "ready_for_review",
+      "fixtureChanged": true,
+      "commandProof": true,
+      "reportCreated": true,
+      "finalPass": true,
+      "mainRequests": 5,
+      "firstRequestInputTokens": 4037,
+      "firstRequestCacheReadTokens": 0,
+      "executedTools": [
+        {
+          "tool_name": "Bash",
+          "status": "completed",
+          "exit_code": 0,
+          "count": 1
+        },
+        {
+          "tool_name": "Edit",
+          "status": "completed",
+          "exit_code": 0,
+          "count": 1
+        },
+        {
+          "tool_name": "Read",
+          "status": "completed",
+          "exit_code": 0,
+          "count": 1
+        },
+        {
+          "tool_name": "Write",
+          "status": "completed",
+          "exit_code": 0,
+          "count": 1
+        }
+      ],
+      "sessionToolEnablement": [
+        "Bash",
+        "Edit",
+        "Read",
+        "TaskOutput",
+        "TaskStop",
+        "Write"
+      ]
+    }
+  ],
+  "firstRequestInputReduction": {
+    "baseline": 9489,
+    "files": 4037,
+    "saved": 5452,
+    "percent": 57.46,
+    "measurement": "Provider model_usage input_tokens for first main request, matched smoke task, same provider/model/effort; no cache read on either first request."
+  },
+  "managedValidation": {
+    "profiles": [
+      "files",
+      "files"
+    ],
+    "statuses": [
+      "ready_for_review",
+      "ready_for_review"
+    ],
+    "sameSession": true,
+    "reportsPass": true,
+    "fixtureUnchanged": true,
+    "guardsClean": true,
+    "userToolsets": [
+      [
+        "Bash",
+        "Edit",
+        "Read",
+        "TaskOutput",
+        "TaskStop",
+        "Write"
+      ],
+      [
+        "Bash",
+        "Edit",
+        "Read",
+        "TaskOutput",
+        "TaskStop",
+        "Write"
+      ]
+    ],
+    "syntheticUserMessagesWithoutToolMap": 5,
+    "executedTools": [
+      {
+        "tool_name": "Bash",
+        "status": "completed",
+        "count": 2
+      },
+      {
+        "tool_name": "Read",
+        "status": "completed",
+        "count": 2
+      }
+    ],
+    "credentialFileUnchanged": true
+  },
+  "protectedComparisonWindow": "Post-login, around the matched baseline/files smoke pair",
+  "credentialStore": {
+    "unchangedDuringInitialPair": false,
+    "unchangedDuringManagedLaunchAndResume": true,
+    "firstPairKeyLevelDiffAvailable": false,
+    "nativeAuthenticationCanPersistProjectKeyLocationMetadata": true,
+    "credentialValuesExported": false
+  }
+}

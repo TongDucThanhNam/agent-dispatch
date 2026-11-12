@@ -1,0 +1,34 @@
+# Merge into the corresponding existing sections; do not append duplicate tables.
+# Set model_instructions_file at the ROOT to the absolute path on the new machine.
+# Example: model_instructions_file = 'C:/Users/NEW_USER/.codex/model-instructions.md'
+personality = "none"
+model_reasoning_summary = "none"
+hide_agent_reasoning = true
+show_raw_agent_reasoning = false
+
+[features]
+multi_agent = false
+apps = false
+plugins = false
+shell_tool = true
+
+[agents]
+enabled = false
+
+[skills]
+include_instructions = false
+
+[[skills.config]]
+name = "spreadsheets:Spreadsheets"
+enabled = false
+
+[[skills.config]]
+name = "presentations:Presentations"
+enabled = false
+
+[[skills.config]]
+name = "documents:documents"
+enabled = false
+
+[apps._default]
+enabled = false

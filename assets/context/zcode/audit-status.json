@@ -1,0 +1,13 @@
+{
+  "auditedAt": "2026-11-12",
+  "nativeVersionObserved": "0.17.1",
+  "historicalOverlayVersion": "0.16.9",
+  "expectedBundleSha256": "31965ce1d5d4a808ef156784f67996de42ccab335591d2386a61ea8f6f506a54",
+  "observedBundleSha256": "d9afd58d694f98a5279bf548cdc7646413c125762e86730605a6071f9e0346d6",
+  "bundleMatchesOverlay": false,
+  "profileDeclaredEnabled": true,
+  "observedCliBehavior": "warning then stock fallback",
+  "desktopOverlayInstalledByThisRepo": false,
+  "automaticOverlayInstallerIncluded": false,
+  "note": "Fragments are portable; historical profile is reference only. Do not bypass the SHA guard or install the incompatible desktop command override."
+}

@@ -55,9 +55,9 @@ export async function readMcodeBridge(config: any, { processes = windowsProcesse
 }
 
 export function mcodeClient(bridge: any, fetchFn: typeof fetch = fetch) {
-  const request = async (route: string, { body, signal, stream = false }: any = {}) => {
+  const request = async (route: string, { body, signal, stream = false, method }: any = {}) => {
     if (!route.startsWith(MCODE_API + '/')) throw Error('Invalid MiniMax desktop route.');
-    const response = await fetchFn(bridge.origin + route, { method: body === undefined ? 'GET' : 'POST',
+    const response = await fetchFn(bridge.origin + route, { method: method ?? (body === undefined ? 'GET' : 'POST'),
       redirect: 'error', headers: { 'x-mavis-runtime-token': bridge.token, 'Content-Type': 'application/json' },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: signal ?? AbortSignal.timeout(15_000) });
     if (!response.ok) {

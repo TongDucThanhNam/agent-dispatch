@@ -1,0 +1,9 @@
+{
+  "memoryEnabled": false,
+  "dynamicWorkflowMode": "disabled",
+  "nativeSearchEnhancementsEnabled": true,
+  "toolSearchMode": "off",
+  "proactiveSuggestionsEnabled": false,
+  "messageStreamShowReasoning": false,
+  "messageStreamShowTodos": true
+}

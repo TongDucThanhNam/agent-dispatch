@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
 import { writeFileAtomic, sleep } from '../../core/fsutil.ts';
+import { classifyError } from '../../monitor/monitor-core.ts';
 import { MCODE_API, probeMcode, resolveMcodeSelection, verifyMcodeSession } from './desktop.ts';
 
 const json = JSON.stringify;
@@ -100,7 +101,12 @@ export function createMcodeProjection(config: any, { prompt, startedAt = Date.no
         finite(u?.input_tokens), finite(u?.output_tokens), finite(u?.cache_read), 0, null, null, sessionId, id,
         finite(u?.reasoning_tokens), prev.firstToken, finite(u?.request_duration_ms));
       if (value.finish_reason === 'stop' && prev.text) response = prev.text;
-      if (value.finish_reason === 'error') nativeError = { message: 'MiniMax Desktop returned an assistant error.' };
+      if (value.finish_reason === 'error') nativeError = {
+        // Preserve a recognized quota blocker without copying arbitrary provider error text.
+        message: classifyError({message: prev.text}).kind === 'quota'
+          ? 'MiniMax Desktop Token Plan usage limit reached. Resolve quota before resuming; no automatic retry.'
+          : 'MiniMax Desktop returned an assistant error.',
+      };
     }
   }
   return {

@@ -33,10 +33,10 @@ type Result = { data: unknown; next?: string[] } | { text: string } | void;
 interface Command extends CommandSpec { run(opts: Opts, args: string[]): Promise<Result> | Result }
 
 const C = CLI_NAME;
-const LAUNCH_VALUES = ['worker', 'stage', 'brief', 'project', 'from', 'model', 'effort', 'provider', 'mode', 'notify', 'thread', 'callback-model', 'config', 'context', 'timeout', 'allow-email'];
+const LAUNCH_VALUES = ['worker', 'stage', 'brief', 'project', 'from', 'model', 'effort', 'provider', 'mode', 'notify', 'thread', 'callback-model', 'config', 'context', 'timeout', 'allow-email', 'context-profile'];
 const LAUNCH_ALIASES = { 'prompt-file': 'brief', 'from-discovery': 'from' };
 const REF_ALIASES = { 'run-dir': 'ref' };
-const LAUNCH_USAGE = '--worker zcode|agy|codex|claude|mcode|grok|gemini --stage discovery|execution --brief FILE [--from REF] [--project DIR] [--model ID] [--effort LEVEL] [--provider ID] [--mode yolo|plan] [--notify auto|codex|none] [--thread UUID] [--context FILE] [--timeout SECONDS] [--allow-email ADDRESS[,ADDRESS...]] (Gemini only)';
+const LAUNCH_USAGE = '--worker zcode|agy|codex|claude|mcode|grok|gemini --stage discovery|execution --brief FILE [--from REF] [--project DIR] [--model ID] [--effort LEVEL] [--provider ID] [--mode yolo|plan] [--context-profile files|web|shell|stock] (ZCode only) [--notify auto|codex|none] [--thread UUID] [--context FILE] [--timeout SECONDS] [--allow-email ADDRESS[,ADDRESS...]] (Gemini only)';
 
 // Run commands accept the ref positionally or through the historical --run-dir option.
 function refOf(opts: Opts, args: string[]) {
@@ -82,6 +82,7 @@ function launchInput(opts: Opts) {
   return { project, promptFile: path.resolve(brief), workerKind: worker, stage, ...(from ? { discoveryRunDir: from } : {}),
     ...(str(opts, 'model') ? { model: str(opts, 'model') } : {}), ...(str(opts, 'effort') ? { effort: str(opts, 'effort') } : {}),
     ...(str(opts, 'provider') ? { provider: str(opts, 'provider') } : {}), mode: str(opts, 'mode') ?? 'yolo',
+    ...(str(opts, 'context-profile') !== undefined ? { zcodeContextProfile: str(opts, 'context-profile') } : {}),
     ...(str(opts, 'callback-model') ? { callbackModel: str(opts, 'callback-model') } : {}), ...notifyOf(opts), ...geminiOptions(opts) };
 }
 

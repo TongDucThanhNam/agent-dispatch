@@ -1,0 +1,95 @@
+{
+  "auditedAt": "2026-11-12",
+  "desktopVersion": "3.1.14",
+  "defaultAgent": "mavis",
+  "candidateAgent": "dispatch-worker",
+  "candidateInstalled": true,
+  "candidateNativeReadbackVerified": true,
+  "candidateSetupIdempotent": true,
+  "preflight": {
+    "valid": true,
+    "startsWorker": false,
+    "model": "minimax/MiniMax-M3.1-Flash",
+    "effort": "max"
+  },
+  "agentConfigurationViews": [
+    {
+      "name": "mavis",
+      "ownerKind": "builtin",
+      "canonicalContentChars": 42305,
+      "configuredSystemPromptChars": 42124,
+      "agentApiSystemPromptChars": 16871,
+      "tools": null,
+      "mcpServers": null,
+      "preloadSkills": null,
+      "diagnostics": [
+        {
+          "code": "unsupported_agent_field",
+          "field_path": "features"
+        }
+      ]
+    },
+    {
+      "name": "dispatch-worker",
+      "ownerKind": "custom",
+      "canonicalContentChars": 788,
+      "configuredSystemPromptChars": 589,
+      "agentApiSystemPromptChars": 589,
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "task_query",
+        "task_output",
+        "task_stop"
+      ],
+      "mcpServers": [],
+      "preloadSkills": [],
+      "diagnostics": []
+    }
+  ],
+  "liveBaseline": {
+    "status": "blocked-before-task",
+    "kind": "quota",
+    "providerCodes": [
+      "42212",
+      "2067"
+    ],
+    "model": "MiniMax-M3.1-Flash",
+    "effort": "max",
+    "provider": "minimax",
+    "modelSource": "token_plan",
+    "localTokens": 10377,
+    "localTokensAreBilledUsage": false,
+    "fixtureUnchanged": true,
+    "toolCallsObserved": 0,
+    "automaticRetry": false
+  },
+  "liveCandidateTested": false,
+  "liveTokenReductionMeasured": false,
+  "fullModelFacingToolCatalogCaptured": false,
+  "inspectorReadHttpStatus": 500,
+  "inspectorPreferenceChanged": false,
+  "protectedFiles": [
+    {
+      "name": "config.yaml",
+      "unchanged": true
+    },
+    {
+      "name": "agents/.builtin/mavis/agent.md",
+      "unchanged": true
+    },
+    {
+      "name": "agents/mavis/config.yaml",
+      "unchanged": true
+    }
+  ],
+  "standaloneCliInstalledOrUsed": false,
+  "accountRouteChanged": false,
+  "autoConsumptionEnabledByThisChange": false,
+  "testsPassed": 47,
+  "typecheckPassed": true,
+  "desktopBridgeConnected": true,
+  "desktopGuiInteractionTested": false
+}

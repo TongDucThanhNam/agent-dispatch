@@ -6,6 +6,7 @@ import { RECORD_DIR, home } from './paths.ts';
 import { CliError } from '../protocol/errors.ts';
 import { clean } from '../monitor/monitor-core.ts';
 import { nativePaths, nativeSelection } from '../workers/zcode/native.ts';
+import { ZCODE_CONTEXT_PROFILES } from '../workers/zcode/context-profile.ts';
 import { CLAUDE_EFFORTS } from '../workers/claude/adapter.ts';
 import { mcodePaths, isMcodeSession } from '../workers/mcode/desktop.ts';
 import { geminiPaths, geminiModelId, geminiModelLabel, isGeminiSession, GEMINI_DEFAULT_MODEL, GEMINI_DEFAULT_EFFORT } from '../workers/gemini/desktop.ts';
@@ -76,6 +77,8 @@ export function validateConfig(raw: any): any {
   };
   if (workerKind !== 'gemini' && ['geminiContextFile', 'geminiTimeoutSeconds', 'geminiAllowEmails'].some(key => raw[key] != null))
     throw invalid('--context, --timeout and --allow-email are Gemini-only options.');
+  if (workerKind !== 'zcode' && raw.zcodeContextProfile != null)
+    throw invalid('--context-profile is a ZCode-only option.');
   let selection: any = {};
   if (workerKind === 'gemini') {
     if (raw.geminiBackend != null && !['bridge', 'uia'].includes(raw.geminiBackend)) throw invalid('Unsupported Gemini backend.');
@@ -97,6 +100,12 @@ export function validateConfig(raw: any): any {
   if (workerKind === 'zcode') {
     try { selection = { ...nativePaths(raw), ...nativeSelection(raw) }; }
     catch (error) { throw invalid(error.message, 'List qualified IDs with: agent-dispatch models --worker zcode'); }
+    // Fresh workers use the live-verified lean toolset; legacy resumes are not converted.
+    // An explicit null preserves the original argv/environment for controlled comparisons.
+    const profile = Object.hasOwn(raw, 'zcodeContextProfile') ? raw.zcodeContextProfile : raw.resumeSessionId ? null : 'files';
+    if (profile != null && !ZCODE_CONTEXT_PROFILES.includes(profile))
+      throw invalid('Invalid ZCode context profile.', 'Use --context-profile files, web, shell or stock.');
+    selection.zcodeContextProfile = profile;
   }
   if (workerKind === 'mcode') {
     const reference = raw.mcodeModel ?? raw.model ?? null;
@@ -130,7 +139,9 @@ export function validateConfig(raw: any): any {
     ...(raw.nodeExe ? { nodeExe: path.resolve(raw.nodeExe) } : {}),
     ...(workerKind === 'agy' ? { agyExe: path.resolve(raw.agyExe ?? defaults.agyExe),
       agyModel: raw.agyModel ?? raw.model ?? (raw.expectedModel !== 'pending-selection' ? raw.expectedModel : null) ?? null,
-      agyEffort: raw.agyEffort ?? raw.effort ?? null, agyAgent: raw.agyAgent ?? raw.agent ?? null, agyPrintTimeout: raw.agyPrintTimeout ?? raw.printTimeout ?? '0' } : {}),
+      agyEffort: raw.agyEffort ?? raw.effort ?? null,
+      agyAgent: Object.hasOwn(raw, 'agyAgent') ? raw.agyAgent : raw.agent ?? (raw.resumeSessionId ? null : 'lean'),
+      agyPrintTimeout: raw.agyPrintTimeout ?? raw.printTimeout ?? '0' } : {}),
     ...(workerKind === 'codex' ? { codexHome: path.resolve(raw.codexHome ?? defaults.codexHome),
       codexModel: raw.codexModel ?? raw.model ?? (raw.expectedModel !== 'pending-selection' ? raw.expectedModel : null) ?? null,
       codexEffort: raw.codexEffort ?? raw.effort ?? null,

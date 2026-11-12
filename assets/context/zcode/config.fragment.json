@@ -1,0 +1,32 @@
+{
+  "plugins": {
+    "enabled": false,
+    "enabledPlugins": {
+      "document-skills@zcode-plugins-official": false,
+      "skill-creator@zcode-plugins-official": false,
+      "zcode-guide@zcode-plugins-official": false,
+      "computer-use@zcode-plugins-official": false,
+      "plugin-creator@zcode-plugins-official": false,
+      "image-search@zcode-plugins-official": false,
+      "documents@zcode-plugins-official": false,
+      "spreadsheets@zcode-plugins-official": false,
+      "presentations@zcode-plugins-official": false,
+      "pdf@zcode-plugins-official": false,
+      "video2code@zcode-plugins-official": false,
+      "node-repl-host@zcode-plugins-official": false,
+      "visualize@zcode-plugins-official": false,
+      "browser-use@zcode-plugins-official": false
+    }
+  },
+  "skills": {
+    "enabled": false
+  },
+  "features": {
+    "mcp": false,
+    "skill": false,
+    "memory": false
+  },
+  "memory": {
+    "use": false
+  }
+}

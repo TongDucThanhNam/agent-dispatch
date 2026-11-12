@@ -2,6 +2,8 @@
 
 Implemented on **2026-09-30**, using the installed Windows Desktop **3.0.74** (`@mmx-agent/electron`). The integration deliberately does not install or invoke the standalone `mcode` CLI.
 
+Context setup on another machine: see [MCode context setup](mcode-context-setup.md) and [3.1.14 worker audit](mcode-worker-context.md). The 2026-11-12 follow-up verified bridge/preflight and installed a separate minimal Custom Agent through native APIs, without replacing the default. Its baseline model task was quota-blocked; the historical tests below are not a new context/token benchmark for this version.
+
 ## Desktop transport and account routing
 
 The supplied `MiniMax Code.exe` hosts an existing coding runtime. Its opt-in diagnostic HTTP sidecar forwards to that runtime; it is not an independent runtime competing for the desktop's database. `agent-dispatch mcode setup` connects a valid existing sidecar or starts a closed desktop with that sidecar enabled. If an app is already running without the bridge, setup asks the user to close it normally rather than restarting it.

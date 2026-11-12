@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { asset, nodeExecutable } from '../../core/paths.ts';
+import { zcodeContextArgs, verifyZcodeContextSupport } from './context-profile.ts';
 
 export function nativePaths(raw: any = {}) {
   const install = raw.zcodeInstallDir ?? process.env.ZCODE_INSTALL_DIR ?? 'C:/Program Files/ZCode';
@@ -43,12 +44,16 @@ export function nativeSelection(raw) {
 }
 export function verifyNative(config) {
   for (const file of [config.nativeCli, config.builtinConfig, config.cliConfig]) if (!fs.existsSync(file)) throw Error(`ZCode runtime file is missing: ${file}`);
+  verifyZcodeContextSupport(config);
   if (!modelCatalog(config).some(m => m.provider === config.expectedProvider && m.model === config.expectedModel))
     throw Error('Requested ZCode provider/model is unavailable in the current provider registry. Run models; no worker started.');
 }
 export function buildNativeInvocation(config, prompt, inherited = process.env) {
   const env = {...inherited};
   delete env.ZCODE_MODEL;
+  // Only this worker process: never activate a legacy in-memory context patch.
+  // Null/absent profiles keep historical resume behavior unchanged.
+  if (config.zcodeContextProfile != null) env.ZCODE_CONTEXT_PROFILE = 'stock';
   env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE = config.builtinConfig;
   env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE = config.personalConfig;
   env.ZCODE_SESSION_DB_PATH = config.dbPath;
@@ -59,6 +64,7 @@ export function buildNativeInvocation(config, prompt, inherited = process.env) {
   env.ZCODE_DIRECT_SELECTION = JSON.stringify({configPath: config.cliConfig, personalConfig: config.personalConfig,
     project: config.project, provider: config.expectedProvider, model: config.expectedModel, effort: config.zcodeEffort});
   const args = [config.nativeCli, '--cwd', config.project, '--prompt', prompt, '--mode', config.mode, '--json'];
+  args.push(...zcodeContextArgs(config.zcodeContextProfile));
   if (config.resumeSessionId) args.push('--resume', config.resumeSessionId);
   return {command: config.nodeExe ?? nodeExecutable(), args, env, cleanupPath};
 }

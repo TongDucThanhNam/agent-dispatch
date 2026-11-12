@@ -1,0 +1,446 @@
+{
+  "auditedAt": "2026-11-12T11:33:18.255Z",
+  "version": "0.17.1",
+  "bundleSha256": "d9afd58d694f98a5279bf548cdc7646413c125762e86730605a6071f9e0346d6",
+  "modelProbe": {
+    "id": "audit-model",
+    "properties": {
+      "supportsToolCall": true,
+      "supportsNativeWebSearch": true,
+      "inputFormat": {
+        "supportsText": true,
+        "supportsImage": true,
+        "supportsPdf": false,
+        "supportsVideo": false,
+        "supportsAudio": false
+      }
+    }
+  },
+  "method": "Offline native registry + production getTools(model) + context builder with synthetic model/environment; not a billed request or live Desktop export",
+  "tokenCountKind": "Native weighted-character heuristic only, not tokenizer or billed usage",
+  "checks": [
+    "retained provider contracts identical",
+    "retained metadata and tool function source identical"
+  ],
+  "globalAgentsCharactersObserved": 3453,
+  "runtimeModified": false,
+  "scenarios": {
+    "baseline": {
+      "options": {
+        "includeSkill": false,
+        "includeAgent": true,
+        "includeSendMessage": true,
+        "embeddedSearchEnabled": true,
+        "includeDynamicWorkflow": false
+      },
+      "toolNames": [
+        "Agent",
+        "AskUserQuestion",
+        "Bash",
+        "Edit",
+        "EnterPlanMode",
+        "ExitPlanMode",
+        "Read",
+        "SendMessage",
+        "TaskOutput",
+        "TaskStop",
+        "TodoRead",
+        "TodoWrite",
+        "WebFetch",
+        "WebSearch",
+        "Write",
+        "ReadSessionContext"
+      ],
+      "toolCharacters": 28936,
+      "systemCharacters": 2802,
+      "metaUserCharacters": 1145,
+      "fixedRepresentationCharacters": 32883,
+      "desktopSystemCharacters": 4604
+    },
+    "workerWeb": {
+      "options": {
+        "includeSkill": false,
+        "includeAgent": true,
+        "includeSendMessage": true,
+        "embeddedSearchEnabled": true,
+        "includeDynamicWorkflow": false,
+        "disallowedTools": [
+          "ToolSearch",
+          "DeferredToolCall",
+          "Glob",
+          "Grep",
+          "TodoRead",
+          "TodoWrite",
+          "CronCreate",
+          "CronList",
+          "CronUpdate",
+          "CronDelete",
+          "CronPauseSelf",
+          "OffPeakCreate",
+          "OffPeakList",
+          "EnterPlanMode",
+          "ExitPlanMode",
+          "AskUserQuestion",
+          "SendMessage",
+          "ReadSessionContext",
+          "Agent",
+          "Task",
+          "Skill",
+          "js",
+          "CreateWorkflow",
+          "AmendWorkflow",
+          "SaveWorkflow",
+          "EvalWorkflowSnippet",
+          "ListWorkflowRuns",
+          "GetWorkflowRun",
+          "ResumeWorkflowRun",
+          "ResolveWorkflowQuestion",
+          "FillWorkflowHole",
+          "ListSavedWorkflows",
+          "ListModels"
+        ]
+      },
+      "toolNames": [
+        "Bash",
+        "Edit",
+        "Read",
+        "TaskOutput",
+        "TaskStop",
+        "WebFetch",
+        "WebSearch",
+        "Write"
+      ],
+      "toolCharacters": 9529,
+      "systemCharacters": 2802,
+      "metaUserCharacters": 1145,
+      "fixedRepresentationCharacters": 13476,
+      "desktopSystemCharacters": 4604
+    },
+    "workerFiles": {
+      "options": {
+        "includeSkill": false,
+        "includeAgent": true,
+        "includeSendMessage": true,
+        "embeddedSearchEnabled": true,
+        "includeDynamicWorkflow": false,
+        "disallowedTools": [
+          "ToolSearch",
+          "DeferredToolCall",
+          "Glob",
+          "Grep",
+          "WebFetch",
+          "WebSearch",
+          "TodoRead",
+          "TodoWrite",
+          "CronCreate",
+          "CronList",
+          "CronUpdate",
+          "CronDelete",
+          "CronPauseSelf",
+          "OffPeakCreate",
+          "OffPeakList",
+          "EnterPlanMode",
+          "ExitPlanMode",
+          "AskUserQuestion",
+          "SendMessage",
+          "ReadSessionContext",
+          "Agent",
+          "Task",
+          "Skill",
+          "js",
+          "CreateWorkflow",
+          "AmendWorkflow",
+          "SaveWorkflow",
+          "EvalWorkflowSnippet",
+          "ListWorkflowRuns",
+          "GetWorkflowRun",
+          "ResumeWorkflowRun",
+          "ResolveWorkflowQuestion",
+          "FillWorkflowHole",
+          "ListSavedWorkflows",
+          "ListModels"
+        ]
+      },
+      "toolNames": [
+        "Bash",
+        "Edit",
+        "Read",
+        "TaskOutput",
+        "TaskStop",
+        "Write"
+      ],
+      "toolCharacters": 7827,
+      "systemCharacters": 2802,
+      "metaUserCharacters": 1145,
+      "fixedRepresentationCharacters": 11774,
+      "desktopSystemCharacters": 4604
+    },
+    "workerShell": {
+      "options": {
+        "includeSkill": false,
+        "includeAgent": true,
+        "includeSendMessage": true,
+        "embeddedSearchEnabled": true,
+        "includeDynamicWorkflow": false,
+        "disallowedTools": [
+          "ToolSearch",
+          "DeferredToolCall",
+          "Read",
+          "Write",
+          "Edit",
+          "Glob",
+          "Grep",
+          "WebFetch",
+          "WebSearch",
+          "TodoRead",
+          "TodoWrite",
+          "CronCreate",
+          "CronList",
+          "CronUpdate",
+          "CronDelete",
+          "CronPauseSelf",
+          "OffPeakCreate",
+          "OffPeakList",
+          "EnterPlanMode",
+          "ExitPlanMode",
+          "AskUserQuestion",
+          "SendMessage",
+          "ReadSessionContext",
+          "Agent",
+          "Task",
+          "Skill",
+          "js",
+          "CreateWorkflow",
+          "AmendWorkflow",
+          "SaveWorkflow",
+          "EvalWorkflowSnippet",
+          "ListWorkflowRuns",
+          "GetWorkflowRun",
+          "ResumeWorkflowRun",
+          "ResolveWorkflowQuestion",
+          "FillWorkflowHole",
+          "ListSavedWorkflows",
+          "ListModels"
+        ]
+      },
+      "toolNames": [
+        "Bash",
+        "TaskOutput",
+        "TaskStop"
+      ],
+      "toolCharacters": 4853,
+      "systemCharacters": 2802,
+      "metaUserCharacters": 1145,
+      "fixedRepresentationCharacters": 8800,
+      "desktopSystemCharacters": 4604
+    },
+    "allOptional": {
+      "options": {
+        "includeSkill": true,
+        "includeAgent": true,
+        "includeSendMessage": true,
+        "embeddedSearchEnabled": true,
+        "includeDynamicWorkflow": true,
+        "includeWorkflow": true,
+        "includeAutomation": true,
+        "includeOffPeak": true,
+        "includeNodeRepl": true,
+        "includeBrowserUse": true
+      },
+      "toolNames": [
+        "Agent",
+        "AskUserQuestion",
+        "Bash",
+        "CronCreate",
+        "CronDelete",
+        "CronList",
+        "CronUpdate",
+        "Edit",
+        "EnterPlanMode",
+        "ExitPlanMode",
+        "Read",
+        "SendMessage",
+        "Skill",
+        "TaskOutput",
+        "TaskStop",
+        "TodoRead",
+        "TodoWrite",
+        "WebFetch",
+        "WebSearch",
+        "Write",
+        "CronPauseSelf",
+        "OffPeakCreate",
+        "OffPeakList",
+        "ReadSessionContext",
+        "js",
+        "CreateWorkflow",
+        "AmendWorkflow",
+        "SaveWorkflow",
+        "EvalWorkflowSnippet",
+        "ListWorkflowRuns",
+        "GetWorkflowRun",
+        "ResumeWorkflowRun",
+        "ResolveWorkflowQuestion",
+        "FillWorkflowHole",
+        "ListSavedWorkflows",
+        "ListModels"
+      ],
+      "toolCharacters": 75299,
+      "systemCharacters": 2802,
+      "metaUserCharacters": 1145,
+      "fixedRepresentationCharacters": 79246,
+      "desktopSystemCharacters": 4604
+    }
+  },
+  "baselineSectionSizes": [
+    {
+      "name": "CLI Prefix",
+      "source": "cli_prefix",
+      "injectionTarget": "system",
+      "cacheHint": "stable",
+      "chars": 35,
+      "tokens": 12
+    },
+    {
+      "name": "Agent Identity",
+      "source": "identity",
+      "injectionTarget": "system",
+      "cacheHint": "stable",
+      "chars": 1229,
+      "tokens": 410
+    },
+    {
+      "name": "Dynamic Behavior",
+      "source": "dynamic_behavior",
+      "injectionTarget": "system",
+      "cacheHint": "dynamic",
+      "chars": 975,
+      "tokens": 325
+    },
+    {
+      "name": "Context Management",
+      "source": "context_management",
+      "injectionTarget": "system",
+      "cacheHint": "dynamic",
+      "chars": 559,
+      "tokens": 187
+    },
+    {
+      "name": "Environment Info",
+      "source": "env_info",
+      "injectionTarget": "meta_user",
+      "cacheHint": "dynamic",
+      "chars": 683,
+      "tokens": 228
+    },
+    {
+      "name": "Session Context",
+      "source": "session_context",
+      "injectionTarget": "meta_user",
+      "cacheHint": "dynamic",
+      "chars": 435,
+      "tokens": 145
+    },
+    {
+      "name": "Current Date",
+      "source": "current_date",
+      "injectionTarget": "meta_user",
+      "cacheHint": "dynamic",
+      "chars": 27,
+      "tokens": 9
+    }
+  ],
+  "baselineToolSizes": [
+    {
+      "name": "Agent",
+      "descriptionChars": 1371,
+      "schemaChars": 567
+    },
+    {
+      "name": "AskUserQuestion",
+      "descriptionChars": 1786,
+      "schemaChars": 3023
+    },
+    {
+      "name": "Bash",
+      "descriptionChars": 1121,
+      "schemaChars": 1589
+    },
+    {
+      "name": "Edit",
+      "descriptionChars": 360,
+      "schemaChars": 552
+    },
+    {
+      "name": "EnterPlanMode",
+      "descriptionChars": 4011,
+      "schemaChars": 119
+    },
+    {
+      "name": "ExitPlanMode",
+      "descriptionChars": 1917,
+      "schemaChars": 754
+    },
+    {
+      "name": "Read",
+      "descriptionChars": 736,
+      "schemaChars": 578
+    },
+    {
+      "name": "SendMessage",
+      "descriptionChars": 509,
+      "schemaChars": 627
+    },
+    {
+      "name": "TaskOutput",
+      "descriptionChars": 1049,
+      "schemaChars": 432
+    },
+    {
+      "name": "TaskStop",
+      "descriptionChars": 203,
+      "schemaChars": 277
+    },
+    {
+      "name": "TodoRead",
+      "descriptionChars": 34,
+      "schemaChars": 119
+    },
+    {
+      "name": "TodoWrite",
+      "descriptionChars": 370,
+      "schemaChars": 678
+    },
+    {
+      "name": "WebFetch",
+      "descriptionChars": 469,
+      "schemaChars": 315
+    },
+    {
+      "name": "WebSearch",
+      "descriptionChars": 334,
+      "schemaChars": 468
+    },
+    {
+      "name": "Write",
+      "descriptionChars": 240,
+      "schemaChars": 348
+    },
+    {
+      "name": "ReadSessionContext",
+      "descriptionChars": 1252,
+      "schemaChars": 1582
+    }
+  ],
+  "recentSessionMetadataOnly": {
+    "runtimeVersion": "0.17.1",
+    "mainTurnRecords": 14,
+    "firstReportedInputTokens": 15986,
+    "lastReportedInputTokens": 132696,
+    "attachmentMime": "video/mp4",
+    "storedReasoningCharacters": 143594,
+    "storedTextCharacters": 50681,
+    "toolOutputCharacters": 63219,
+    "note": "Historical session, not a controlled baseline; stored reasoning does not establish provider replay behavior. No message text, attachment URL or account/session identifiers included."
+  }
+}

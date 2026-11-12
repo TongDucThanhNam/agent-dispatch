@@ -1,0 +1,109 @@
+{
+  "historicalAppliedAt": "2026-10-18T13:55:19.135Z",
+  "auditedAt": "2026-11-12",
+  "desktopVersionObserved": "3.1.10",
+  "blockedToolsInHistoricalTrim": [
+    "website_deploy",
+    "mavis",
+    "self_reminder",
+    "cron_create",
+    "cron_read",
+    "cron_update",
+    "cron_delete",
+    "task",
+    "task_append",
+    "workspace_semantic_search",
+    "browser",
+    "mcp_browser",
+    "create_goal",
+    "get_goal",
+    "update_goal",
+    "ask_user",
+    "memory",
+    "code_review",
+    "request_feature_enable"
+  ],
+  "configuredToolsInHistoricalTrim": [
+    "read",
+    "write",
+    "edit",
+    "bash",
+    "task_query",
+    "task_output",
+    "task_stop",
+    "grep",
+    "glob",
+    "todowrite",
+    "web_fetch"
+  ],
+  "configuredSkillsInHistoricalTrim": [
+    "init",
+    "mcode-tools-master"
+  ],
+  "historicalVerification": {
+    "toolNames": [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "grep",
+      "glob",
+      "todowrite",
+      "skill",
+      "web_fetch",
+      "web_search",
+      "task_query",
+      "task_output",
+      "task_stop"
+    ],
+    "promptBytes": {
+      "before": 20687,
+      "after": 13643,
+      "saved": 7044,
+      "percent": 34.1
+    },
+    "skillNames": [
+      "init",
+      "mcode-tools-master"
+    ]
+  },
+  "currentFileComparisons": [
+    {
+      "path": "config.yaml",
+      "historicalAfterSha256": "2872e6717d99bcdfbf164fedd1678ba3505f98c47a58fa67d637aedc238c5a50",
+      "observedSha256": "8f5fada0bfaf3562e8b12d1548f69c5461cdb752bba673718c3bc85b9932cba4",
+      "observedBytes": 3372,
+      "matchesHistoricalTrim": false
+    },
+    {
+      "path": "agents/.builtin/mavis/agent.md",
+      "historicalAfterSha256": "70b86c764ef3191d90415baaed801b688bc92c6a296e085706f0cbeba0680bdf",
+      "observedSha256": "6a5e2b235661351456c6b96dbb88222ad36792bb0385892a017e454841290930",
+      "observedBytes": 42573,
+      "matchesHistoricalTrim": false
+    },
+    {
+      "path": "agents/.builtin/worker/agent.md",
+      "historicalAfterSha256": "85d9022013494465990d06b9b3647e1c5c7a31efae10b5f4a4bc6739d2081a23",
+      "observedSha256": "27a294a81cbd79beed1c22603ce4cd7c26db06774b496997356b98871e4a0645",
+      "observedBytes": 1535,
+      "matchesHistoricalTrim": false
+    },
+    {
+      "path": "agents/.builtin/explore/agent.md",
+      "historicalAfterSha256": "7c9e90b30c93bf8ad5a3b91fa7dd614ebe9053eb1d09b538d9995770ea3c4530",
+      "observedSha256": "700c723b9958063e53eae8d3ae7d9bba23644479ca5983b0d31af57d38f84b7b",
+      "observedBytes": 2302,
+      "matchesHistoricalTrim": false
+    },
+    {
+      "path": "agents/.builtin/verifier/agent.md",
+      "historicalAfterSha256": "c5526d301468e96f26b6b5fbcbcbe9c88513f9b6d47f8e100495344a1fd1e6b9",
+      "observedSha256": "586ef3ec99d9e4fa03d2f8036f77d04cb2549790dbbad6ad1ae0095f32585167",
+      "observedBytes": 2098,
+      "matchesHistoricalTrim": false
+    }
+  ],
+  "currentRenderedPromptOrCatalogVerified": false,
+  "note": "Historical evidence, not an installer or a claim that old prompt savings remain effective after app updates. No builtin prompt files or credentials included."
+}

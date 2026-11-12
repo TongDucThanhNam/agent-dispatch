@@ -198,13 +198,13 @@ test('concurrent dashboard clients reuse one service and a restart preserves its
 test('the launch CLI registers its new run and returns the common dashboard without model requests', async () => {
   const root=temp(),project=path.join(root,'project');fs.mkdirSync(project);const cliConfig=path.join(root,'cli.json'),brief=path.join(project,'brief.md'),adapter=path.join(root,'adapter.mjs'),launchConfig=path.join(root,'launch.json'),dashboardRoot=path.join(root,'dashboard');
   save(cliConfig,{model:'test-provider/test-model'});fs.writeFileSync(brief,'Fixture only.');
-  fs.writeFileSync(adapter,"console.log(JSON.stringify({sessionId:'sess_fixture',response:'Fixture completed.'}));");
+  fs.writeFileSync(adapter,"for(const flag of ['--disallowed-tools','--toolsearch-mode','--workflow-mode'])if(!process.argv.includes(flag))throw Error('Missing context flag: '+flag);console.log(JSON.stringify({sessionId:'sess_fixture',response:'Fixture completed.'}));");
   const builtinConfig=path.join(root,'builtin.json'),personalConfig=path.join(root,'personal.json');
   save(builtinConfig,{config:{providerConfigRules:{providerRules:[{providerId:'test-provider',config:{builtinModelIds:['test-model']}}]}}});
   save(launchConfig,{project,promptFile:brief,notify:false,nativeCli:adapter,builtinConfig,personalConfig,cliConfig,expectedModel:'test-model',expectedProvider:'test-provider',dbPath:path.join(root,'absent.sqlite'),keepOpenMs:0});
   const result=cli(['launch','--config',launchConfig],{env:{ZCODE_DASHBOARD_ROOT:dashboardRoot}});
   let hub;try{assert.equal(result.status,0,result.stdout+result.stderr);const receipt=result.envelope.data;assert.equal(result.envelope.cmd,'launch');
-    assert.match(receipt.ref,/^[a-f0-9]{8}$/);assert.equal(receipt.worker,'zcode');assert.equal(receipt.stage,'execution');assert.equal(receipt.notify,'none');
+    assert.match(receipt.ref,/^[a-f0-9]{8}$/);assert.equal(receipt.worker,'zcode');assert.equal(receipt.stage,'execution');assert.equal(receipt.notify,'none');assert.equal(receipt.contextProfile,'files');
     assert.match(receipt.url,/#run=[a-f0-9]{24}$/);assert.deepEqual(result.envelope.next,[`agent-dispatch wait ${receipt.ref}`]);hub=JSON.parse(fs.readFileSync(path.join(dashboardRoot,'hub.json'),'utf8'));
     assert.equal(fs.readdirSync(path.join(dashboardRoot,'runs')).length,1);assert.ok(Number.isInteger(receipt.runnerPid));
   }finally{if(hub){try{process.kill(hub.pid);}catch{}}}

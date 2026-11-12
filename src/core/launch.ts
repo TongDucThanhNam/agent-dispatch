@@ -104,7 +104,8 @@ export async function prepare(raw: any, { checkLock = true, probeGeminiRuntime =
   return { config, assignment, discovery };
 }
 
-export const selectionOf = (config: any) => ({ model: qualified(config.expectedProvider, config.expectedModel), effort: configuredEffort(config) });
+export const selectionOf = (config: any) => ({ model: qualified(config.expectedProvider, config.expectedModel), effort: configuredEffort(config),
+  ...(config.workerKind === 'zcode' && config.zcodeContextProfile != null ? { contextProfile: config.zcodeContextProfile } : {}) });
 const notifyOf = (config: any) => config.notify ? 'codex' : 'none';
 
 /** Dry run of launch: validates everything and starts nothing. */

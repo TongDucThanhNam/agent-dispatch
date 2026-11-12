@@ -11,6 +11,8 @@
     "bun": ">=1.4"
   },
   "scripts": {
+    "setup:agy": "bun scripts/setup-agy.ts",
+    "setup:mcode-worker": "bun scripts/setup-mcode-worker.ts",
     "typecheck": "tsc --noEmit && bun run --cwd web typecheck",
     "test": "bun test --timeout 60000",
     "build:web": "bun run --cwd web build",

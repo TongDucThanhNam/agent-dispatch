@@ -208,16 +208,28 @@ export function startGeminiBridge(config: any, options: any, deps: any = {}) {
   child.stop = async () => {
     if (child.exitCode !== null) return;
     stopping = true;
-    // A stop may precede bridge discovery or race POST delivery. Never resend.
-    if (delivery) { await delivery; if (child.exitCode === null) await client('/stop', { requestId }); }
-    for (let i = 0; i < 100; i++) {
-      if (child.exitCode !== null) {
-        if (projection.terminal?.cancelled || projection.terminal?.response) return;
-        throw Error('Gemini cancellation is unconfirmed.');
+    const unconfirmed = () => Error('Gemini did not confirm cancellation; the app was not killed.');
+    const confirm = async () => {
+      // A stop may precede bridge discovery or race POST delivery. Never resend.
+      if (delivery) {
+        await delivery;
+        if (child.exitCode === null) {
+          // Completion may race the stop route (409). Only the terminal stream
+          // can establish whether it completed or was actually cancelled.
+          try { await client('/stop', { requestId }); } catch {}
+        }
       }
-      await sleep(200);
-    }
-    throw Error('Gemini did not confirm cancellation; the app was not killed.');
+      while (child.exitCode === null) await sleep(200);
+      if (!projection.terminal?.cancelled && !projection.terminal?.response) throw unconfirmed();
+    };
+    // Bound the WHOLE operation, not just the final polling loop: delivery and
+    // the /stop acknowledgement can themselves stall. Abort only our transport.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([confirm(), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { controller.abort(); reject(unconfirmed()); }, 20_000);
+      })]);
+    } finally { clearTimeout(timer); }
   };
   const run = async () => {
     const timeout = setTimeout(() => controller.abort(), (request.timeoutSeconds + 45) * 1000);

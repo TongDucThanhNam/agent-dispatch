@@ -51,19 +51,23 @@ test('installer preparation bundles the shared safety module and dry-run leaves 
   } finally { rmTree(dir); }
 });
 
-function runtimeFixture(electron: any = {}) {
+function runtimeFixture(electron: any = {}, extra: any = {}) {
   const listeners = new Map(), require = createRequire(import.meta.url);
-  const sandbox: any = { Buffer, URL, process, setTimeout, clearTimeout, console,
+  const sandbox: any = { Buffer, URL, process, setTimeout, clearTimeout, console, ...extra,
     require: (name: string) => name === 'electron' ? {
       app: { whenReady: () => new Promise(() => {}), on() {} },
       ipcMain: { on: (name, handler) => listeners.set(name, handler) },
       ...electron,
     } : name === './gemini-safety.cjs' ? require(asset('node', 'gemini-safety.cjs')) : require(name) };
   vm.runInNewContext(fs.readFileSync(asset('node', 'gemini-bridge.cjs'), 'utf8') + `\n;globalThis.testApi = {
-    matchesUserTurn, completedReply, handle, token, selectModel, menuItem,
+    matchesUserTurn, completedReply, handle, token, selectModel, menuItem, createWorker,
     configure: () => { server = { address: () => ({port:12345}) }; },
     markSeen: id => seen.add(id),
     setActive: value => { active=value; },
+    cleanup: () => disposeWorker(),
+    retain: sessionId => retainWorker(sessionId),
+    contextFor: wc => commandContexts.get(wc),
+    resources: () => ({ cleanupWarnings, lastCleanupMs, workerOpen: !!worker, workerIdle: !!worker?.idle, turns: worker?.turns ?? 0, selecting }),
   };`, sandbox);
   sandbox.testApi.configure(); return sandbox.testApi;
 }
@@ -116,7 +120,7 @@ test('selection uses a hidden non-focusable worker and never opens menus in the 
   const source={isDestroyed:()=>false,getURL:()=> 'https://gemini.google.com/app',getLastWebPreferences:()=>({preload:'preload.js'}),session:{},getUserAgent:()=> 'Gemini',
     executeJavaScript:()=>{throw Error('Main view must not be touched.');}};
   const wc={isDestroyed:()=>destroyed,getURL:()=> 'https://gemini.google.com/app',setUserAgent(){},setWindowOpenHandler(){},on(){},loadURL:async()=>{},
-    debugger:{attach(){},sendCommand:async()=>{}},isOffscreen:()=>true,setFrameRate(){},startPainting(){},close(){destroyed=true;},executeJavaScript:async(code:string)=>{
+    debugger:{attach(){},sendCommand:async()=>{}},isOffscreen:()=>true,setFrameRate(){},startPainting(){},stopPainting(){},close(){destroyed=true;},executeJavaScript:async(code:string)=>{
       const [action]=JSON.parse('['+code.slice(code.lastIndexOf('})(')+3,-1)+']');
       if(action==='snapshot')return{ready:true,users:[],replies:[]};
       return{items:[{text:'4 Argon',selected:true}]};
@@ -129,6 +133,157 @@ test('selection uses a hidden non-focusable worker and never opens menus in the 
     {writeHead:code=>{expect(code).toBe(200);},end:text=>{result=JSON.parse(text);}});
   expect(windows).toHaveLength(1);expect(windows[0]).toMatchObject({show:false,focusable:false,skipTaskbar:true});
   expect(result.background).toBe(true);expect(destroyed).toBe(true);
+});
+
+test('resume readiness accepts an idle user-only chat, but waits for the requested history', async () => {
+  const target = 'https://gemini.google.com/app/1234567890abcdef';
+  let reads = 0;
+  const source = { isDestroyed: () => false, getURL: () => 'https://gemini.google.com/app',
+    getLastWebPreferences: () => ({}), session: {}, getUserAgent: () => 'Gemini' };
+  const wc = { isDestroyed: () => false, getURL: () => target, setUserAgent() {}, setWindowOpenHandler() {}, on() {}, loadURL: async () => {},
+    debugger: { attach() {}, sendCommand: async () => {} }, isOffscreen: () => true, setFrameRate() {}, startPainting() {}, close() {},
+    executeJavaScript: async () => ({ ready: true, url: ++reads === 1 ? 'https://gemini.google.com/app' : target,
+      users: reads === 2 ? [] : [{ id: 'user-query-content-old' }], replies: [] }) };
+  const api = runtimeFixture({ webContents: { getAllWebContents: () => [source] }, BaseWindow: class {
+    contentView = { addChildView() {} }; isFocusable() { return false; } isVisible() { return false; } isDestroyed() { return false; } destroy() {}
+  }, WebContentsView: class { webContents = wc; setBounds() {} } });
+  const result = await api.createWorker(target);
+  expect(reads).toBe(3); expect(result.snapshot.users).toHaveLength(1); expect(result.snapshot.replies).toEqual([]);
+});
+
+function backgroundRuntime(overrides: any = {}) {
+  const calls: any[] = [], loads: string[] = [], listeners = new Map<string, any>();
+  let destroyed = false;
+  let currentURL = 'https://gemini.google.com/app';
+  const source = { isDestroyed: () => false, getURL: () => 'https://gemini.google.com/app',
+    getLastWebPreferences: () => ({}), session: {}, getUserAgent: () => 'Gemini' };
+  const wc = { isDestroyed: () => destroyed, getURL: () => currentURL, setUserAgent() {}, setWindowOpenHandler() {},
+    on: (name, callback) => listeners.set(name, callback), loadURL: async (url: string) => { calls.push('load'); loads.push(url); await overrides.load?.({ url, listeners, calls }); currentURL = url; },
+    debugger: { attach() {}, isAttached: () => true, sendCommand: async (name: string) => { calls.push(name); await overrides.debug?.(name); } },
+    isOffscreen: () => true, setFrameRate: fps => calls.push(['fps', fps]), startPainting: () => calls.push('paint'), stopPainting: () => calls.push('stop-paint'),
+    close: () => { calls.push('close'); if (overrides.closeThrows) throw Error('Synthetic close failure.'); destroyed = true; },
+    executeJavaScript: async () => ({ ready: true, url: currentURL, users: currentURL.includes('/app/') ? [{ id: 'user-query-content-old' }] : [], replies: [] }) };
+  const api = runtimeFixture({ webContents: { getAllWebContents: () => [source] }, BaseWindow: class {
+    contentView = { addChildView() {} }; isFocusable() { return false; } isVisible() { return false; } isDestroyed() { return false; }
+    destroy() { calls.push('destroy-window'); }
+  }, WebContentsView: class { webContents = { ...wc }; constructor() { destroyed = false; } setBounds() {} } }, overrides.extra);
+  return { api, calls, loads, wc };
+}
+
+test('one transient pre-send navigation failure is retried, with action/stage diagnostics', async () => {
+  let loads = 0;
+  const state = backgroundRuntime({ load: () => { if (++loads === 1) throw Object.assign(Error('ERR_FAILED (-2) loading test'), { code: 'ERR_FAILED', errno: -2 }); } });
+  const events: any[] = [];
+  await state.api.createWorker('https://gemini.google.com/app', { stage: 'readiness', deadline: Date.now() + 60_000,
+    res: { destroyed: false, write: line => events.push(JSON.parse(line)) } });
+  expect(loads).toBe(2);
+  expect(events.filter(event => event.action === 'navigate').map(event => event.outcome)).toEqual(['read-retry', 'ok']);
+  await state.api.cleanup();
+});
+
+test('worker uses bounded low-rate painting and garbage-collects only its own renderer before close', async () => {
+  const state = backgroundRuntime();
+  await state.api.createWorker('https://gemini.google.com/app');
+  expect(state.calls).toContainEqual(['fps', 5]);
+  await state.api.cleanup();
+  expect(state.calls.slice(-5)).toEqual(['stop-paint', 'load', 'HeapProfiler.collectGarbage', 'close', 'destroy-window']);
+  expect(state.api.resources()).toMatchObject({ cleanupWarnings: 0, workerOpen: false });
+});
+
+test('blocked authentication redirects and repeated navigation failures never loop or send', async () => {
+  for (const blocked of [false, true]) {
+    let loads = 0;
+    const state = backgroundRuntime({ load: ({ listeners }) => {
+      loads++;
+      if (blocked) listeners.get('will-redirect')({ preventDefault() {} }, 'https://accounts.google.com/login');
+      throw Object.assign(Error('ERR_FAILED (-2) loading test'), { code: 'ERR_FAILED', errno: -2 });
+    } });
+    await expect(state.api.createWorker('https://gemini.google.com/app')).rejects.toThrow(blocked ? 'trusted origin' : 'navigation failed');
+    expect(loads).toBe(blocked ? 1 : 2);
+    expect(state.calls.includes('paint')).toBe(false);
+    await state.api.cleanup();
+  }
+});
+
+test('cancelled preparation starts no navigation, and close failure still destroys the native window', async () => {
+  const cancelled = backgroundRuntime();
+  await expect(cancelled.api.createWorker('https://gemini.google.com/app', { cancel: true })).rejects.toThrow('cancelled');
+  expect(cancelled.calls).toEqual([]);
+  const broken = backgroundRuntime({ closeThrows: true });
+  await broken.api.createWorker('https://gemini.google.com/app'); await broken.api.cleanup();
+  expect(broken.calls.at(-1)).toBe('destroy-window');
+  expect(broken.api.resources()).toMatchObject({ cleanupWarnings: 1, workerOpen: false });
+});
+
+test('cancellation interrupts an unresolved load and suppresses a scheduled navigation retry', async () => {
+  for (const transient of [false, true]) {
+    const context = { cancel: false, deadline: Date.now() + 60_000, res: { destroyed: false, write() {} } };
+    let loads = 0;
+    const state = backgroundRuntime({ load: () => {
+      loads++; setTimeout(() => { context.cancel = true; }, 20);
+      if (transient) throw Object.assign(Error('ERR_FAILED (-2) loading test'), { code: 'ERR_FAILED' });
+      return new Promise(() => {});
+    } });
+    const started = Date.now();
+    await expect(state.api.createWorker('https://gemini.google.com/app', context)).rejects.toThrow('cancelled');
+    expect(loads).toBe(1); expect(Date.now() - started).toBeLessThan(1500);
+    await state.api.cleanup(); expect(state.api.resources().workerOpen).toBe(false);
+  }
+});
+
+test('an unresponsive renderer collector cannot hold the bridge worker lock indefinitely', async () => {
+  const state = backgroundRuntime({ debug: name => name === 'HeapProfiler.collectGarbage' ? new Promise(() => {}) : undefined });
+  await state.api.createWorker('https://gemini.google.com/app');
+  const started = Date.now(); await state.api.cleanup();
+  expect(Date.now() - started).toBeLessThan(4500);
+  expect(state.api.resources()).toMatchObject({ cleanupWarnings: 1, workerOpen: false });
+  expect(state.calls.at(-1)).toBe('destroy-window');
+});
+
+test('only the same explicit conversation reuses an idle worker, without retaining old run contexts', async () => {
+  const state = backgroundRuntime(), target = 'https://gemini.google.com/app/1234567890abcdef';
+  const context = () => ({ deadline: Date.now() + 60_000, res: { destroyed: false, write() {} } });
+  const first = await state.api.createWorker(target, context());
+  await state.api.retain('gemini_1234567890abcdef');
+  expect(state.api.contextFor(first.wc)).toBeUndefined();
+  expect(state.api.resources()).toMatchObject({ workerOpen: true, workerIdle: true, turns: 1 });
+  const nextContext = context(), next = await state.api.createWorker(target, nextContext);
+  expect(next.wc).toBe(first.wc); expect(state.loads).toEqual([target]);
+  expect(state.api.contextFor(next.wc)).toBe(nextContext);
+  await state.api.retain('gemini_1234567890abcdef');
+  const fresh = await state.api.createWorker('https://gemini.google.com/app', context());
+  expect(fresh.wc).not.toBe(first.wc);
+  expect(state.loads).toEqual([target, 'about:blank', 'https://gemini.google.com/app']);
+  await state.api.cleanup(); expect(state.api.resources().workerOpen).toBe(false);
+});
+
+test('idle expiry serializes cleanup and releases its cached worker without a model request', async () => {
+  let expire!: () => void;
+  const idleTimer = { unref() {} };
+  const state = backgroundRuntime({ extra: {
+    setTimeout: (callback, ms) => { if (ms === 30_000) { expire = callback; return idleTimer; } return setTimeout(callback, ms); },
+    clearTimeout: timer => { if (timer !== idleTimer) clearTimeout(timer); },
+  } });
+  await state.api.createWorker('https://gemini.google.com/app/1234567890abcdef');
+  await state.api.retain('gemini_1234567890abcdef');
+  expire(); expect(state.api.resources().selecting).toBe(true);
+  for (let i = 0; i < 100 && state.api.resources().selecting; i++) await Bun.sleep(1);
+  expect(state.api.resources()).toMatchObject({ workerOpen: false, selecting: false, cleanupWarnings: 0 });
+  expect(state.loads.at(-1)).toBe('about:blank');
+});
+
+test('a retained renderer is rotated after 32 confirmed leases instead of growing without a bound', async () => {
+  const state = backgroundRuntime(), target = 'https://gemini.google.com/app/1234567890abcdef';
+  let last: any;
+  for (let i = 0; i < 32; i++) {
+    last = await state.api.createWorker(target);
+    await state.api.retain('gemini_1234567890abcdef');
+  }
+  expect(state.loads).toEqual([target]); expect(state.api.resources().turns).toBe(32);
+  const rotated = await state.api.createWorker(target);
+  expect(rotated.wc).not.toBe(last.wc);
+  expect(state.loads).toEqual([target, 'about:blank', target]);
+  await state.api.cleanup();
 });
 
 test('Gemini selects and reads back model plus thinking level, never trusting only the toolbar label', async () => {

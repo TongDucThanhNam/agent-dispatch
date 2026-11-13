@@ -9,15 +9,25 @@ const { normalized, matchesUserTurn, createOwnershipTracker, assertSafePrompt } 
 const HOME = path.join(require('node:os').homedir(), '.agent-dispatch', 'gemini-bridge');
 const manifestPath = path.join(HOME, 'runtime.json');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function bounded(promise, ms, message) {
+async function bounded(promise, ms, message, context) {
   let timer;
-  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error(message)), ms); })]); }
+  const deadline = Math.min(Date.now() + ms, context?.deadline ?? Infinity);
+  try { return await Promise.race([promise, new Promise((_, reject) => {
+    const poll = () => {
+      if (context?.cancel) { reject(Error('Gemini preparation cancelled.')); return; }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) { reject(Object.assign(Error(message), { timeout: true })); return; }
+      timer = setTimeout(poll, Math.min(100, remaining));
+    };
+    poll();
+  })]); }
   finally { clearTimeout(timer); }
 }
 const origin = 'https://gemini.google.com';
 const chatId = url => /^https:\/\/gemini\.google\.com\/app\/([a-f0-9]{16})(?:[?#]|$)/.exec(url)?.[1];
 const trusted = url => { try { return new URL(url).origin === origin; } catch { return false; } };
 let active = null, worker = null, server = null, selecting = false;
+let cleanupWarnings = 0, lastCleanupMs = 0;
 const seen = new Set();
 const token = crypto.randomBytes(32).toString('hex');
 
@@ -25,9 +35,16 @@ const token = crypto.randomBytes(32).toString('hex');
 function pageCommand(action, value) {
   if (location.origin !== 'https://gemini.google.com') throw Error('Gemini login is required.');
   const visible = e => !!e && e.getClientRects().length > 0;
-  const buttons = [...document.querySelectorAll('button')].filter(visible);
+  const buttons = [...document.querySelectorAll('button')];
   const label = e => e.getAttribute('aria-label') || e.innerText || '';
-  const find = re => buttons.find(e => re.test(label(e).trim()));
+  // Do not force layout for every historical copy/source/action button. Only
+  // controls with a matching accessible label/text need a visibility check.
+  const find = re => {
+    // Hidden descendants can prefix/suffix textContent; keep the exact match
+    // against the rendered label, using an unanchored prefilter only.
+    const candidate = new RegExp(re.source.replace(/^\^|\$$/g, ''), re.flags);
+    return buttons.find(e => candidate.test(e.getAttribute('aria-label') || e.textContent || '') && visible(e) && re.test(label(e).trim()));
+  };
   const editor = [...document.querySelectorAll('[contenteditable="true"][role="textbox"], rich-textarea [contenteditable="true"], .ql-editor[contenteditable="true"]')].find(visible);
   const editorText = e => {
     if (!e) return '';
@@ -65,7 +82,19 @@ function pageCommand(action, value) {
   if (action === 'draft') {
     if (!editor || editor.innerText.trim() || stop) throw Error('Gemini editor is not empty and idle.');
     editor.focus({ preventScroll: true }); // DOM focus in our offscreen view, never native window focus.
-    if (!document.execCommand('insertText', false, value)) throw Error('Gemini editor rejected the prompt.');
+    // Multiline insertText is extremely slow; insertHTML is blocked by Trusted
+    // Types. Build text nodes in one fragment instead. The editor's mutation
+    // observer/input path sees one replacement; caller markup is never parsed.
+    if (value.includes('\n')) {
+      const fragment = document.createDocumentFragment();
+      for (const line of value.replace(/\r\n/g, '\n').split('\n')) {
+        const p = document.createElement('p');
+        p.append(line ? document.createTextNode(line) : document.createElement('br'));
+        fragment.append(p);
+      }
+      editor.replaceChildren(fragment);
+      editor.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertFromPaste', data: value }));
+    } else if (!document.execCommand('insertText', false, value)) throw Error('Gemini editor rejected the prompt.');
   } else if (action === 'send') {
     if (!send || send.disabled || stop) throw Error('Gemini Send is unavailable.');
     send.click();
@@ -74,6 +103,25 @@ function pageCommand(action, value) {
   } else if (action !== 'snapshot') throw Error('Invalid renderer operation.');
   if (action !== 'snapshot') return {};
   const oldUsers = new Set(value?.userIds), oldReplies = new Set(value?.replyIds);
+  // Reading innerText forces layout, especially costly while Gemini renders
+  // long markdown/math answers. Reuse streaming text until that element changes;
+  // once Stop disappears, always read fresh text for ownership and completion.
+  // takeRecords also sees mutations made before an observer callback can run.
+  const cacheKey = Symbol.for('agent-dispatch.gemini.rendered-text');
+  const cache = globalThis[cacheKey] ??= new WeakMap();
+  const renderedText = (e, read = () => e.innerText) => {
+    if (typeof MutationObserver !== 'function') return read();
+    let entry = cache.get(e);
+    if (!entry) {
+      entry = { dirty: true, text: '', observer: new MutationObserver(() => { entry.dirty = true; }) };
+      entry.observer.observe(e.closest?.('model-response') || e, { subtree: true, childList: true, characterData: true, attributes: true });
+      cache.set(e, entry);
+    }
+    if (entry.observer.takeRecords().length) entry.dirty = true;
+    if (!stop) entry.dirty = true;
+    if (entry.dirty) { entry.text = read(); entry.dirty = false; }
+    return entry.text;
+  };
   const users = [], replies = [];
   let userId = null;
   // querySelectorAll returns document order: one pass associates replies without
@@ -83,14 +131,16 @@ function pageCommand(action, value) {
       userId = e.id;
       const user = { id: e.id };
       if (value && !oldUsers.has(e.id)) {
-        const lines = [...e.querySelectorAll('.query-text-line')];
-        user.text = lines.length ? lines.map(line => line.innerText.replace(/\n$/, '')).join('\n') : e.innerText;
+        user.text = renderedText(e, () => {
+          const lines = [...e.querySelectorAll('.query-text-line')];
+          return lines.length ? lines.map(line => line.innerText.replace(/\n$/, '')).join('\n') : e.innerText;
+        });
       }
       users.push(user);
     } else {
       const reply = { id: e.id, userId };
       if (value && !oldReplies.has(e.id)) {
-        reply.text = e.innerText;
+        reply.text = renderedText(e);
         reply.busy = e.getAttribute('aria-busy');
         reply.complete = !!e.closest('model-response')?.querySelector('.response-footer.complete');
       }
@@ -127,7 +177,9 @@ const command = async (wc, action, value) => {
     return execution;
   };
   let execution;
-  const limit = readActions.has(action) ? 20_000 : 10_000;
+  // Draft insertion may be large, but still gets exactly one execution. Sending
+  // keeps its short bound and is NEVER retried. Turn/cancel deadlines win below.
+  const limit = action === 'draft' ? 60_000 : readActions.has(action) ? 20_000 : 10_000;
   let warned = false, retried = false;
   try {
     // Small waits notice cancellation without cancelling the underlying renderer.
@@ -166,6 +218,8 @@ async function status() {
   return { event: 'status', worker: 'gemini', backend: 'desktop-bridge', version: app.getVersion(), pid: process.pid,
     ready: s.ready, model: s.model, url: s.url, hasDraft: s.hasDraft, busy: !!active || selecting, userBusy: s.busy,
     backgroundOnly: true,
+    resources: { workerOpen: !!worker, workerIdle: !!worker?.idle, cachedTurns: worker?.turns ?? 0,
+      frameRate: 5, cleanupWarnings, lastCleanupMs },
     capabilities: ['offscreen-renderer', 'non-activating-window', 'owned-response-completion', 'turn-ownership-v2', 'model-selection', 'thinking-level-selection', 'stream', 'resume', 'cancel'] };
 }
 async function inspectSelection(wc) {
@@ -213,6 +267,22 @@ async function selectModel(wc, model, effort) {
   }
 }
 async function createWorker(url, context) {
+  if (context?.cancel) throw Error('Gemini preparation cancelled.');
+  if (worker) {
+    const cached = worker, wc = cached.webContents;
+    clearTimeout(cached.idleTimer);
+    if (cached.idle && cached.turns < 32 && !cached.isDestroyed() && !wc.isDestroyed() &&
+        chatId(url) && chatId(url) === cached.sessionId && chatId(wc.getURL()) === cached.sessionId) {
+      cached.idle = false;
+      if (context) commandContexts.set(wc, context);
+      wc.startPainting();
+      const snapshot = await command(wc, 'snapshot');
+      if (!snapshot.ready || snapshot.busy || snapshot.hasDraft || chatId(snapshot.url) !== cached.sessionId)
+        throw Error('Cached Gemini conversation is not idle and ready.');
+      return { wc, snapshot };
+    }
+    await disposeWorker();
+  }
   const source = mainContent(), prefs = source.getLastWebPreferences();
   // Gemini redirects every BrowserWindow popup into its main chat. A dedicated
   // BaseWindow + WebContentsView avoids that popup flow without removing guards.
@@ -223,22 +293,113 @@ async function createWorker(url, context) {
   const wc = view.webContents;
   if (context) commandContexts.set(wc, context);
   win.contentView.addChildView(view); view.setBounds({ x: 0, y: 0, width: 1200, height: 900 });
-  worker = { webContents: wc, window: win, isDestroyed: () => win.isDestroyed(), destroy: () => { if (!wc.isDestroyed()) wc.close(); if (!win.isDestroyed()) win.destroy(); } };
+  const owned = worker = { webContents: wc, window: win, idle: false, turns: 0, retiring: false,
+    isDestroyed: () => win.isDestroyed(), destroy: () => {
+    try { if (!wc.isDestroyed()) wc.close(); } finally { if (!win.isDestroyed()) win.destroy(); }
+  } };
   wc.setUserAgent(source.getUserAgent());
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
-  wc.on('will-navigate', (event, target) => { if (!trusted(target)) event.preventDefault(); });
-  wc.on('will-redirect', (event, target) => { if (!trusted(target)) event.preventDefault(); });
-  await bounded(wc.loadURL(url), 20_000, 'Gemini background load timed out.');
+  let blocked = null, rendererFailure = null;
+  const guard = (event, target) => {
+    if (owned.retiring && target === 'about:blank') return;
+    if (!trusted(target)) {
+      try {
+        const host = new URL(target).hostname;
+        blocked = host === 'accounts.google.com' ? 'authentication' : host === 'consent.google.com' ? 'consent' :
+          ['google.com', 'www.google.com'].includes(host) && new URL(target).pathname.startsWith('/sorry') ? 'challenge' : 'external';
+      } catch { blocked = 'external'; }
+      event.preventDefault();
+    }
+  };
+  wc.on('will-navigate', guard); wc.on('will-redirect', guard);
+  wc.on('render-process-gone', (_event, detail) => { rendererFailure = /^[a-z-]{1,32}$/.test(detail?.reason) ? detail.reason : 'unknown'; });
+  const navigationStarted = Date.now();
+  const recordNavigation = outcome => {
+    const detail = { action: 'navigate', stage: context?.stage ?? 'readiness', elapsedMs: Date.now() - navigationStarted };
+    if (context) { context.lastCommand = detail; if (!context.res.destroyed) emit(context, { event: 'command', ...detail, outcome }); }
+    return detail;
+  };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (context?.cancel) throw Error('Gemini preparation cancelled.');
+      if (Date.now() >= (context?.deadline ?? Infinity)) throw Object.assign(Error('Gemini background load timed out.'), { timeout: true });
+      await bounded(wc.loadURL(url), 20_000, 'Gemini background load timed out.', context);
+      recordNavigation('ok'); break;
+    } catch (error) {
+      const code = error.code ?? /^(ERR_[A-Z_]+) \(-?\d+\) loading/.exec(error.message)?.[1];
+      // Only a settled, transient navigation failure can be repeated, and only
+      // before any draft/send. Never retry timed-out outstanding loads or auth redirects.
+      if (!attempt && !blocked && !rendererFailure && !context?.cancel && Date.now() + 300 < (context?.deadline ?? Infinity) &&
+          ['ERR_FAILED', 'ERR_CONNECTION_RESET', 'ERR_CONNECTION_CLOSED', 'ERR_CONNECTION_ABORTED', 'ERR_INTERNET_DISCONNECTED', 'ERR_TIMED_OUT', 'ERR_NAME_NOT_RESOLVED'].includes(code)) {
+        recordNavigation('read-retry'); await sleep(300); continue;
+      }
+      const detail = recordNavigation(error.timeout ? 'timeout' : 'error');
+      throw Object.assign(Error(blocked ? 'Gemini background navigation left the trusted origin (' + blocked + '); inspect the app manually.' :
+        rendererFailure ? 'Gemini background renderer exited (' + rendererFailure + ').' :
+        context?.cancel ? 'Gemini preparation cancelled.' : 'Gemini background navigation failed' + (code ? ' (' + code + ')' : '') + '.'), detail);
+    }
+  }
   wc.debugger.attach('1.3');
-  await bounded(wc.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true }), 5000, 'Gemini renderer activation failed.');
+  await bounded(wc.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true }), 5000, 'Gemini renderer activation failed.', context);
   if (!wc.isOffscreen()) throw Error('Gemini did not create an offscreen renderer.');
-  wc.setFrameRate(30); wc.startPainting();
+  wc.setFrameRate(5); wc.startPainting();
   for (let i = 0; i < 120; i++) {
     const s = await command(wc, 'snapshot');
-    if (s.ready && (!chatId(url) || s.users.length && s.replies.length)) return { wc, snapshot: s };
+    // A timed-out/refused turn may have a user message but no assistant node.
+    // Waiting for a reply here makes that otherwise idle conversation unusable.
+    if (s.ready && (!chatId(url) || chatId(s.url) === chatId(url) && s.users.length)) {
+      context = null; // Event listeners must not retain a completed run/HTTP response.
+      return { wc, snapshot: s };
+    }
     await sleep(250);
   }
   throw Error('The background Gemini renderer did not become ready.');
+}
+async function disposeWorker() {
+  if (worker) await cleanWorker(worker, true);
+}
+async function cleanWorker(owned, discard) {
+  const started = Date.now();
+  if (!owned) return;
+  clearTimeout(owned.idleTimer);
+  owned.idle = false;
+  commandContexts.delete(owned.webContents);
+  pendingReads.delete(owned.webContents);
+  let failed = false;
+  try {
+    const wc = owned.webContents;
+    if (!discard && (wc.isDestroyed() || owned.isDestroyed())) throw Error('Gemini worker disappeared before retention.');
+    if (!wc.isDestroyed()) {
+      wc.stopPainting();
+      if (discard) {
+        owned.retiring = true;
+        await bounded(wc.loadURL('about:blank'), 1000, 'Gemini worker blanking timed out.');
+      }
+      if (wc.debugger.isAttached?.() !== false)
+        await bounded(wc.debugger.sendCommand('HeapProfiler.collectGarbage'), 3000, 'Gemini worker collection timed out.');
+    }
+  } catch { failed = true; cleanupWarnings++; }
+  finally {
+    if (discard || failed) {
+      try { owned.destroy(); } catch { cleanupWarnings++; }
+      if (worker === owned) worker = null;
+    }
+    lastCleanupMs = Date.now() - started;
+  }
+  return !discard && !failed;
+}
+async function retainWorker(sessionId) {
+  const owned = worker;
+  if (!owned) return;
+  if (!/^gemini_[a-f0-9]{16}$/.test(sessionId)) { await disposeWorker(); return; }
+  if (!await cleanWorker(owned, false)) return;
+  owned.sessionId = sessionId.slice(7); owned.turns++; owned.idle = true;
+  owned.idleTimer = setTimeout(() => {
+    if (worker !== owned || !owned.idle || active || selecting) return;
+    selecting = true; // Serialize idle retirement with new requests.
+    void disposeWorker().finally(() => { selecting = false; });
+  }, 30_000);
+  owned.idleTimer.unref?.();
 }
 const completedReply = reply => !!reply?.text.trim() && reply.busy === 'false' && reply.complete === true;
 function emit(run, frame) {
@@ -355,12 +516,13 @@ async function runPrompt(run) {
         }
         if (!run.cancel && completedReply(fresh[0]) && response && !s.busy && Date.now() - changedAt >= 300) {
           flushResponse();
+          run.retainWorker = true;
           emit(run, { event: 'complete', sessionId: run.sessionId, ownership: run.ownership, rebindCount: ownershipTracker.rebindCount, responseId, response, url: s.url, model: selection.model, effort: selection.effort, selection,
             completionSource: run.completed === 'c_' + id ? 'native-turn-lifecycle-and-dom' : 'owned-response-dom' }); return;
         }
         if (run.cancel) {
           if (!stopAt && s.busy) { await command(wc, 'stop'); stopAt = Date.now(); }
-          if (!s.busy) { flushResponse(); emit(run, { event: 'cancelled', sessionId: run.sessionId, rebindCount: ownershipTracker.rebindCount }); return; }
+          if (!s.busy) { run.retainWorker = true; flushResponse(); emit(run, { event: 'cancelled', sessionId: run.sessionId, rebindCount: ownershipTracker.rebindCount }); return; }
           if (stopAt && Date.now() - stopAt > 15_000) throw Error('Gemini cancellation is unconfirmed.');
         }
       }
@@ -368,12 +530,21 @@ async function runPrompt(run) {
     }
     throw Error('Gemini completion is unconfirmed: response deadline exceeded. Do not resend automatically.');
   } catch (error) {
+    run.retainWorker = false;
+    if (run.cancel && !run.submitted) {
+      if (!run.res.destroyed) emit(run, { event: 'cancelled', beforeSubmission: true, sessionId: null });
+      return; // A pending draft execution cannot submit; finally destroys its view.
+    }
     flushResponse(); // Keep the last checked text/proof ahead of reconciliation transitions.
     const failure = error.action ? { action: error.action, stage: error.stage, elapsedMs: error.elapsedMs } : run.lastCommand;
-    // Never stop another view. This renderer was created exclusively for this run.
+    // Never stop another view. This renderer is leased exclusively to this run.
     const wasOwned = !!run.ownership;
     run.ownership = null;
     run.stage = 'error-reconciliation';
+    // The expired turn deadline must not forbid cleanup itself. Allow a short,
+    // separate read/stop budget, still bounded by an existing cancellation
+    // deadline. No completion or send is possible on this error-only path.
+    run.deadline = Math.min(Date.now() + 10_000, run.cancelDeadline ?? Infinity);
     if (run.submitted && run.wc && !run.wc.isDestroyed()) {
       try {
         const s = await snapshot(run.wc);
@@ -395,9 +566,11 @@ async function runPrompt(run) {
       submitted: !!run.submitted, ownership: run.ownership ?? 'unverified', rebindCount: ownershipTracker?.rebindCount ?? 0,
       ownershipObservations: ownershipTracker?.observations ?? [] });
   } finally {
-    run.res.end();
-    if (worker && !worker.isDestroyed()) worker.destroy();
-    worker = null; active = null;
+    // Do not release the transport/turn lock until the worker has been cleaned.
+    try {
+      if (run.retainWorker && !run.res.destroyed) await retainWorker(run.sessionId);
+      else await disposeWorker();
+    } finally { active = null; run.res.end(); }
   }
 }
 
@@ -423,15 +596,15 @@ async function handle(req, res) {
       const value = req.method === 'POST' ? await body(req) : null;
       if (active || selecting) { json(409, { error: 'Gemini bridge is busy.' }); return; }
       selecting = true;
-      let wc;
+      let wc, selectionResult;
       try {
         ({ wc } = await createWorker(origin + '/app'));
-        json(200, { ...(value ? await selectModel(wc, value.model, value.effort) : await inspectSelection(wc)), background: true });
+        selectionResult = { ...(value ? await selectModel(wc, value.model, value.effort) : await inspectSelection(wc)), background: true };
       } finally {
         try { if (wc) await command(wc, 'menu-close'); } catch {}
-        if (worker && !worker.isDestroyed()) worker.destroy();
-        worker = null; selecting = false;
+        try { await disposeWorker(); } finally { selecting = false; }
       }
+      json(200, selectionResult);
       return;
     }
     if (req.method === 'POST' && req.url === '/run') {

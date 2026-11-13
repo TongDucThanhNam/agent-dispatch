@@ -104,6 +104,83 @@ test('fake DOM snapshot uses visible query lines and ties each reply to its imme
   expect(safety.ownedTurn([], [snap.users[1]], brief, marker).level).toBe('marker');
 });
 
+test('snapshot does not force layout on historical action buttons', () => {
+  let historicalReads = 0, controlReads = 0;
+  const oldButtons = Array.from({ length: 1000 }, () => ({ textContent: 'Copy answer',
+    getAttribute: () => null,
+    get innerText() { historicalReads++; return 'Copy answer'; },
+    getClientRects() { historicalReads++; return [1]; } }));
+  const button = (text: string, shown = true) => ({ textContent: text, getAttribute: () => text,
+    getClientRects() { controlReads++; return shown ? [1] : []; } });
+  const api = runtime({ location: { origin: 'https://gemini.google.com', href: url }, document: {
+    querySelectorAll: (selector: string) => selector === 'button' ? [...oldButtons,
+      button('Open mode picker, currently Hidden', false), button('Open mode picker, currently Argon Cao'),
+      button('Stop response', false), { textContent: 'hidden icon Send message hidden shortcut', innerText: 'Send message',
+        getAttribute: () => null, getClientRects() { controlReads++; return [1]; } }] : [],
+  } });
+  const result = api.pageCommand('snapshot', { userIds: [], replyIds: [] });
+  expect(result.model).toBe('Argon Cao'); expect(result.busy).toBe(false); expect(result.send).toBe(true);
+  expect(historicalReads).toBe(0); expect(controlReads).toBe(4);
+});
+
+test('multiline drafts use text nodes under Trusted Types, with one input event and no HTML sink', () => {
+  const calls: any[] = [], inputs: any[] = [];
+  let fragment: any, replacements = 0;
+  const node = (tag: string) => ({ tag, children: [] as any[], append(child: any) { this.children.push(child); } });
+  const editor = { innerText: '', getClientRects: () => [1], focus() {},
+    replaceChildren(value: any) { fragment = value; replacements++; }, dispatchEvent(event: any) { inputs.push(event); } };
+  const api = runtime({ location: { origin: 'https://gemini.google.com' },
+    InputEvent: class { constructor(public type: string, public options: any) {} }, document: {
+    createDocumentFragment: () => node('fragment'), createElement: node, createTextNode: (text: string) => ({ text }),
+    querySelectorAll: (selector: string) => selector.includes('contenteditable') ? [editor] : [],
+    execCommand: (...args: any[]) => { if (args[0] === 'insertHTML') throw TypeError('TrustedHTML required'); calls.push(args); return true; },
+  } });
+  const prompt = 'Xin chào <script>&"\r\n\r\n  x\t= 2\n';
+  api.pageCommand('draft', prompt);
+  expect(replacements).toBe(1); expect(calls).toEqual([]);
+  expect(fragment.children.map(p => p.children[0].text ?? p.children[0].tag)).toEqual(['Xin chào <script>&"', 'br', '  x\t= 2', 'br']);
+  expect(inputs).toMatchObject([{ type: 'input', options: { bubbles: true, composed: true, inputType: 'insertFromPaste', data: prompt } }]);
+  api.pageCommand('draft', 'single line <literal>');
+  expect(calls).toEqual([['insertText', false, 'single line <literal>']]);
+});
+
+test('snapshot caches rendered text but rechecks mutations, completion, ownership and replaced nodes', () => {
+  const observers = new Map<any, any>();
+  class Observer {
+    records: any[] = [];
+    constructor(public callback: () => void) {}
+    observe(node: any) { observers.set(node, this); }
+    takeRecords() { return this.records.splice(0); }
+  }
+  let reads = 0, text = 'streaming', busy = 'true', complete = false;
+  const user = { id: uid, querySelectorAll: () => [], get innerText() { reads++; return marker + '\n' + brief; } };
+  const container = { querySelector: () => complete ? {} : null };
+  const reply = { id: rid, get innerText() { reads++; return text; }, getAttribute: () => busy,
+    closest: () => container };
+  let nodes: any[] = [user, reply];
+  const stop = { textContent: 'Stop response', getAttribute: () => 'Stop response', getClientRects: () => [1] };
+  const api = runtime({ MutationObserver: Observer, location: { origin: 'https://gemini.google.com', href: url },
+    document: { querySelectorAll: (selector: string) => selector === 'button' ? complete ? [] : [stop] :
+      selector === '[id^="user-query-content-"], [id^="model-response-message-content"]' ? nodes : [] } });
+  const snapshot = () => api.pageCommand('snapshot', { userIds: [], replyIds: [] });
+  expect(snapshot().replies[0].text).toBe('streaming');
+  for (let i = 0; i < 100; i++) expect(snapshot().users[0].text).toBe(marker + '\n' + brief);
+  expect(reads).toBe(2);
+  text = 'revised answer'; observers.get(container).records.push({ type: 'characterData' });
+  expect(snapshot().replies[0].text).toBe(text); expect(reads).toBe(3);
+  busy = 'false'; complete = true;
+  text = 'fresh final text'; // Even a change outside the observed subtree must be read at completion.
+  expect(snapshot().replies[0]).toMatchObject({ text, busy: 'false', complete: true, userId: uid });
+  expect(reads).toBe(5);
+  complete = false;
+  nodes = [{ ...user, id: uid + '-rebound', innerText: marker + '\n' + brief }, reply];
+  expect(snapshot().replies[0].userId).toBe(uid + '-rebound');
+  text = 'callback revision'; observers.get(container).callback();
+  expect(snapshot().replies[0].text).toBe(text);
+  nodes = [nodes[0], { ...reply, innerText: 'replacement response' }];
+  expect(snapshot().replies[0].text).toBe('replacement response');
+});
+
 function historyPage(count: number) {
   let textReads = 0, comparisons = 0;
   const nodes: any[] = [];
@@ -117,6 +194,7 @@ function historyPage(count: number) {
   const editor = { innerText: '', children: [], childNodes: [], getClientRects: () => [1], focus() {} };
   const api = runtime({ location: { origin: 'https://gemini.google.com', href: url }, document: {
     execCommand: () => true,
+    createDocumentFragment: () => ({ append() {} }), createElement: () => ({ append() {} }), createTextNode: text => text,
     querySelectorAll: (selector: string) => selector === 'button' ? [button('Open mode picker, currently Argon Cao'), button('Send message')] :
       selector.includes('contenteditable') ? [editor] : selector === '[id^="user-query-content-"]' ? nodes.filter(n => n.id.startsWith('user-')) :
       selector === '[id^="model-response-message-content"]' ? nodes.filter(n => n.id.startsWith('model-')) :
@@ -174,7 +252,7 @@ async function runFake(render: (prompt: string, n: number) => any, options: any 
   const wc = { isDestroyed: () => false, getURL: () => sent ? url : before.url, executeJavaScript: async (code: string) => {
     const [action, value] = JSON.parse('[' + code.slice(code.lastIndexOf('})(') + 3, -1) + ']'); actions.push(action);
     const override = options.command?.({ action, value, sent, polls, run, clock, before });
-    if (override) return await override;
+    if (override) { const result = await override; if (result !== undefined) return result; }
     if (action === 'draft') drafted = value;
     if (action === 'send') { sent = true; if (options.sendThrows) throw Error('send acknowledgement lost'); }
     if (action === 'snapshot' && sent) {
@@ -247,6 +325,40 @@ test('a timed-out send is never retried and keeps submission uncertainty', async
   expect(result.events.at(-1)).toMatchObject({ event: 'error', action: 'send', stage: 'send', elapsedMs: 10_000, submitted: true });
   expect(result.actions.filter(a => a === 'send')).toHaveLength(1);
   expect(result.events.some(e => e.action === 'send' && e.outcome === 'read-grace')).toBe(false);
+});
+
+test('a slow draft waits on its one execution, verifies it and sends exactly once', async () => {
+  const result = await runFake(answer, { virtual: true, timeout: 90,
+    command: ({ action, clock }: any) => action === 'draft' ? new Promise<void>(resolve => clock.setTimeout(resolve, 12_000)) : null });
+  expect(result.events.at(-1).event).toBe('complete');
+  expect(result.actions.filter(action => action === 'draft')).toHaveLength(1);
+  expect(result.actions.filter(action => action === 'send')).toHaveLength(1);
+  expect(result.events.find(event => event.action === 'draft' && event.outcome === 'ok').elapsedMs).toBe(12_000);
+});
+
+test('cancelling a stalled draft is confirmed before submission within the cancellation bound', async () => {
+  const result = await runFake(answer, { virtual: true, timeout: 90,
+    command: ({ action, clock, run }: any) => {
+      if (action !== 'draft') return null;
+      clock.setTimeout(() => { run.cancel = true; }, 1000);
+      return new Promise(() => {});
+    } });
+  expect(result.events.at(-1)).toMatchObject({ event: 'cancelled', beforeSubmission: true });
+  expect(result.actions.filter(action => action === 'send')).toHaveLength(0);
+  expect(result.elapsedMs).toBeLessThanOrEqual(16_000);
+});
+
+test('deadline cleanup can stop a freshly reverified owned turn, never a foreign one', async () => {
+  for (const foreign of [false, true]) {
+    const result = await runFake(prompt => ({ ...answer(prompt), busy: true }), { virtual: true, timeout: 1,
+      command: ({ action, run }: any) => foreign && action === 'snapshot' && run.stage === 'error-reconciliation' ?
+        Promise.resolve({ url, model: selection.displayModel, busy: true, users: [{ id: uid, text: 'foreign turn' }], replies: [] }) : null });
+    expect(result.events.at(-1).event).toBe('error');
+    expect(result.events.some(event => event.event === 'complete')).toBe(false);
+    expect(result.actions.filter(action => action === 'send')).toHaveLength(1);
+    expect(result.actions.filter(action => action === 'stop')).toHaveLength(foreign ? 0 : 1);
+    expect(result.elapsedMs).toBeLessThanOrEqual(11_000);
+  }
 });
 
 test('two callers cannot overlap an unresolved expensive read', async () => {

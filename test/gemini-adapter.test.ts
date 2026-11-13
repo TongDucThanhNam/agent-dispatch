@@ -225,6 +225,66 @@ test('Gemini bridge stop before delivery never submits a prompt', async () => {
   } finally { runtime.finalize(); rmTree(f.project); }
 });
 
+test('Gemini stop bounds pending delivery and pending stop acknowledgements, never resubmitting', async () => {
+  const originalTimeout = globalThis.setTimeout;
+  const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((fn, ms, ...args) =>
+    originalTimeout(fn, ms === 20_000 ? 10 : ms, ...args)) as typeof setTimeout);
+  try {
+    for (const blocked of ['delivery', 'stop']) {
+      const f = fixture(); let sends = 0, stops = 0, signal: AbortSignal;
+      let started!: () => void;
+      const sending = new Promise<void>(resolve => { started = resolve; });
+      const runtime = startGemini(f.config, { prompt: f.prompt }, { client: async (route, _request, abort) => {
+        if (route === '/stop') {
+          if (++stops === 1 && blocked === 'stop') return new Promise(() => {});
+          return new Response('{}');
+        }
+        sends++; signal = abort; started();
+        if (blocked === 'delivery') return new Promise((_resolve, reject) => {
+          abort.addEventListener('abort', () => reject(Error('delivery aborted')), { once: true });
+        });
+        return new Response(new ReadableStream({ start(controller) {
+          abort.addEventListener('abort', () => controller.error(Error('stream aborted')), { once: true });
+        } }), { headers: { 'content-type': 'application/x-ndjson' } });
+      } });
+      const closed = new Promise(resolve => runtime.child.once('close', resolve));
+      try {
+        await sending;
+        await expect(runtime.child.stop()).rejects.toThrow('did not confirm cancellation');
+        await closed; runtime.finalize();
+        expect(signal!.aborted).toBe(true); expect(sends).toBe(1); expect(runtime.child.exitCode).toBe(1);
+        const result = JSON.parse(fs.readFileSync(path.join(f.runDir, 'result.json'), 'utf8'));
+        expect(result.cancelled).toBeUndefined(); expect(result.response).toBeUndefined(); expect(result.isError).toBe(true);
+      } finally { runtime.finalize(); rmTree(f.project); }
+    }
+  } finally { timer.mockRestore(); }
+});
+
+test('Gemini stop tolerates a 409 racing verified stream completion', async () => {
+  const f = fixture(); let stream: ReadableStreamDefaultController, ready!: () => void, sends = 0;
+  const sending = new Promise<void>(resolve => { ready = resolve; });
+  const frame = (value: any) => stream.enqueue(new TextEncoder().encode(JSON.stringify(value) + '\n'));
+  const runtime = startGemini(f.config, { prompt: f.prompt }, { client: async route => {
+    if (route === '/stop') {
+      frame({ event: 'complete', sessionId: sid, responseId, response: 'Finished.', model: '4 Argon', ...proof, completionSource: 'owned-response-dom' });
+      stream.close(); throw Error('Gemini bridge HTTP 409: No matching owned turn.');
+    }
+    sends++;
+    return new Response(new ReadableStream({ start(controller) {
+      stream = controller;
+      frame({ event: 'session', sessionId: sid, model: '4 Argon', ...proof });
+      frame({ event: 'ownership', sessionId: sid, userId: 'user-query-content-1', ownership: 'exact' });
+      frame({ event: 'response', sessionId: sid, responseId, text: 'Finished.', ownership: 'exact' });
+      ready();
+    } }), { headers: { 'content-type': 'application/x-ndjson' } });
+  } });
+  try {
+    await sending; await runtime.child.stop(); runtime.finalize();
+    expect(runtime.child.exitCode).toBe(0); expect(sends).toBe(1);
+    expect(JSON.parse(fs.readFileSync(path.join(f.runDir, 'result.json'), 'utf8')).response).toBe('Finished.');
+  } finally { runtime.finalize(); rmTree(f.project); }
+});
+
 test('Gemini keeps long answers intact and callbacks do not request coding delegation', () => {
   const f = fixture();
   try {
